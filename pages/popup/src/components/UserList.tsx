@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import Smiley from '@src/components/Smiley';
 import type { User } from '@src/types';
@@ -87,10 +87,11 @@ function WithoutMemoFiltered({ type, users }: FilteredProps) {
     }
 
     if (search.trim()) {
-      _users = _users.filter(user => {
-        user.full_name.toLowerCase().includes(search.toLowerCase()) ||
-          user.username.toLowerCase().includes(search.toLowerCase());
-      });
+      _users = _users.filter(
+        user =>
+          user.full_name.toLowerCase().includes(search.toLowerCase()) ||
+          user.username.toLowerCase().includes(search.toLowerCase()),
+      );
     }
 
     return _users;
