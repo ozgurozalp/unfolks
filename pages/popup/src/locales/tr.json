@@ -17,6 +17,7 @@
     "unfollowersMessage": "Seni geri takip etmeyen <bold>{{count}}</bol> kişi var.",
     "unfollow": "Takibi bırak",
     "authError": "Instagram'a giriş yapmanız gerekiyor veya yetkiniz bulunmuyor. Lütfen Instagram'a giriş yapın ve tekrar deneyin.",
-    "newUnfollowersWarning": "{{count}} kişi sizi takipten çıkmış olabilir"
+    "newUnfollowersWarning_one": "{{count}} kişi sizi takipten çıkmış olabilir",
+    "newUnfollowersWarning_other": "{{count}} kişi sizi takipten çıkmış olabilir"
   }
 }

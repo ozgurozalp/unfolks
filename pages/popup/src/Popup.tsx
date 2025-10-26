@@ -14,22 +14,32 @@ import sendMessage from '@src/helpers/sendMessage';
 
 function Popup() {
   const { t } = useTranslation();
-  const {
-    unfollowers,
-    isInstagram,
-    setUnfollowers,
-    removeUnfollower,
-    changeUserLoading,
-    newUnfollowersCount,
-    clearNewUnfollowersCount,
-  } = useMainStore();
+  const { unfollowers, isInstagram, setUnfollowers, removeUnfollower, changeUserLoading, previousUnfollowerCount } =
+    useMainStore();
   const [loading, setLoading] = useState(false);
 
   const callback = useCallback(
     (request: Request) => {
       switch (request.type) {
         case TYPES.SET_PEOPLE: {
-          setUnfollowers(request.users ?? []);
+          const newUsers = request.users ?? [];
+          const currentCount = newUsers.length;
+
+          // Check if we should show warning
+          if (previousUnfollowerCount !== null && currentCount > previousUnfollowerCount) {
+            const newUnfollowersCount = currentCount - previousUnfollowerCount;
+            const message =
+              newUnfollowersCount === 1
+                ? t('newUnfollowersWarning_one', { count: newUnfollowersCount })
+                : t('newUnfollowersWarning_other', { count: newUnfollowersCount });
+            toast.warning(message, {
+              id: 'new-unfollowers-warning',
+              position: 'bottom-center',
+              duration: 5000,
+            });
+          }
+
+          setUnfollowers(newUsers);
           setLoading(false);
           break;
         }
@@ -56,7 +66,7 @@ function Popup() {
         }
       }
     },
-    [t, setUnfollowers, setLoading, removeUnfollower, changeUserLoading],
+    [t, setUnfollowers, setLoading, removeUnfollower, changeUserLoading, previousUnfollowerCount],
   );
 
   useEffect(() => {
@@ -66,21 +76,6 @@ function Popup() {
       port.onMessage.removeListener(callback);
     };
   }, [callback]);
-
-  useEffect(() => {
-    if (newUnfollowersCount !== null && newUnfollowersCount > 0) {
-      const message =
-        newUnfollowersCount === 1
-          ? t('newUnfollowersWarning_one', { count: newUnfollowersCount })
-          : t('newUnfollowersWarning_other', { count: newUnfollowersCount });
-      toast.warning(message, {
-        id: 'new-unfollowers-warning',
-        position: 'bottom-center',
-        duration: 5000,
-      });
-      clearNewUnfollowersCount();
-    }
-  }, [newUnfollowersCount, t, clearNewUnfollowersCount]);
 
   const getPeople = async () => {
     if (loading) return;
