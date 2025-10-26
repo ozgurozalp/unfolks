@@ -30,5 +30,9 @@
   "authError": {
     "description": "Yetkilendirme hata mesajı",
     "message": "Instagram'a giriş yapmanız gerekiyor veya yetkiniz bulunmuyor. Lütfen Instagram'a giriş yapın ve tekrar deneyin."
+  },
+  "newUnfollowersWarning": {
+    "description": "Yeni takipten çıkanlar tespit edildiğinde uyarı mesajı",
+    "message": "$1 kişi sizi takipten çıkmış olabilir"
   }
 }

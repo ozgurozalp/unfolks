@@ -14,7 +14,15 @@ import sendMessage from '@src/helpers/sendMessage';
 
 function Popup() {
   const { t } = useTranslation();
-  const { unfollowers, isInstagram, setUnfollowers, removeUnfollower, changeUserLoading } = useMainStore();
+  const {
+    unfollowers,
+    isInstagram,
+    setUnfollowers,
+    removeUnfollower,
+    changeUserLoading,
+    newUnfollowersCount,
+    clearNewUnfollowersCount,
+  } = useMainStore();
   const [loading, setLoading] = useState(false);
 
   const callback = useCallback(
@@ -58,6 +66,21 @@ function Popup() {
       port.onMessage.removeListener(callback);
     };
   }, [callback]);
+
+  useEffect(() => {
+    if (newUnfollowersCount !== null && newUnfollowersCount > 0) {
+      const message =
+        newUnfollowersCount === 1
+          ? t('newUnfollowersWarning_one', { count: newUnfollowersCount })
+          : t('newUnfollowersWarning_other', { count: newUnfollowersCount });
+      toast.warning(message, {
+        id: 'new-unfollowers-warning',
+        position: 'bottom-center',
+        duration: 5000,
+      });
+      clearNewUnfollowersCount();
+    }
+  }, [newUnfollowersCount, t, clearNewUnfollowersCount]);
 
   const getPeople = async () => {
     if (loading) return;

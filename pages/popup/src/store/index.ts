@@ -7,12 +7,15 @@ type Tab = 'all' | 'normal' | 'verified';
 export interface MainStore {
   unfollowers: User[] | null;
   isInstagram: boolean;
+  previousUnfollowerCount: number | null;
+  newUnfollowersCount: number | null;
   setUnfollowers: (unfollowers: User[]) => void;
   clearUnfollowers: () => void;
   removeUnfollower: (id: string) => void;
   changeUserLoading: (id: string, loading: boolean) => void;
   selectedTab: Tab;
   setSelectedTab: (tab: Tab) => void;
+  clearNewUnfollowersCount: () => void;
 }
 
 export const useMainStore = create<MainStore>()(
@@ -23,7 +26,25 @@ export const useMainStore = create<MainStore>()(
         setSelectedTab: tab => set({ selectedTab: tab }),
         isInstagram: false,
         unfollowers: null,
-        setUnfollowers: unfollowers => set({ unfollowers }),
+        previousUnfollowerCount: null,
+        newUnfollowersCount: null,
+        setUnfollowers: unfollowers =>
+          set(state => {
+            const currentCount = unfollowers.length;
+            const previousCount = state.previousUnfollowerCount;
+            let newUnfollowersCount = null;
+
+            // If there's a previous count and the current count is greater, calculate the difference
+            if (previousCount !== null && currentCount > previousCount) {
+              newUnfollowersCount = currentCount - previousCount;
+            }
+
+            return {
+              unfollowers,
+              previousUnfollowerCount: currentCount,
+              newUnfollowersCount,
+            };
+          }),
         clearUnfollowers: () => set({ unfollowers: [] }),
         removeUnfollower: id =>
           set(state => ({
@@ -36,10 +57,14 @@ export const useMainStore = create<MainStore>()(
             ),
           }));
         },
+        clearNewUnfollowersCount: () => set({ newUnfollowersCount: null }),
       }),
       {
         name: 'main-storage',
-        partialize: state => ({ unfollowers: state.unfollowers }),
+        partialize: state => ({
+          unfollowers: state.unfollowers,
+          previousUnfollowerCount: state.previousUnfollowerCount,
+        }),
       },
     ),
   ),

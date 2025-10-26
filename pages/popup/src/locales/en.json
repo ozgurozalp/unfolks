@@ -16,6 +16,8 @@
     "noUnfollowersMessage": "You don't have any friends who are not following you back.",
     "unfollowersMessage": "There are <bold>{{count}}</bold> people not following you back.",
     "unfollow": "Unfollow",
-    "authError": "You need to log in to Instagram or you don't have permission. Please log in to Instagram and try again."
+    "authError": "You need to log in to Instagram or you don't have permission. Please log in to Instagram and try again.",
+    "newUnfollowersWarning_one": "{{count}} person may have unfollowed you",
+    "newUnfollowersWarning_other": "{{count}} people may have unfollowed you"
   }
 }
