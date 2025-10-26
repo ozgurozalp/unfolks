@@ -21,6 +21,7 @@ export type Request = {
   users?: User[];
   deletedId?: string;
   status?: boolean;
+  errorMessage?: string;
 };
 
 export enum TYPES {
@@ -29,6 +30,7 @@ export enum TYPES {
   SET_PEOPLE = 'SET_PEOPLE',
   UNFOLLOW = 'UNFOLLOW',
   ERROR = 'ERROR',
+  AUTH_ERROR = 'AUTH_ERROR',
   UNFOLLOWED = 'UNFOLLOWED',
   PAGE_CHECK = 'PAGE_CHECK',
   REDIRECT_TO_INSTAGRAM = 'REDIRECT_TO_INSTAGRAM',

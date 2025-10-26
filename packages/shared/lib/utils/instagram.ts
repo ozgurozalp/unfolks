@@ -1,5 +1,13 @@
 import type { Options, User } from '.';
 import { TYPES } from '.';
+import { t } from '@extension/i18n';
+
+export class AuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+  }
+}
 
 export class Instagram {
   sharedData: any;
@@ -28,6 +36,10 @@ export class Instagram {
       credentials: 'include',
     });
 
+    if (response.status === 401 || response.status === 403) {
+      throw new AuthenticationError(t('authError'));
+    }
+
     if (!response.ok) throw response;
 
     const data = await response.json();
@@ -54,6 +66,10 @@ export class Instagram {
       const response = await fetch(url, {
         headers: { 'Content-Type': 'application/json' },
       });
+
+      if (response.status === 401 || response.status === 403) {
+        throw new AuthenticationError(t('authError'));
+      }
 
       if (!response.ok) throw new Error(`Request failed with status: ${response.status}`);
 
@@ -105,5 +121,10 @@ export async function getSharedData() {
   if (!location.href.includes('instagram.com')) return;
 
   const res = await fetch('/data/shared_data/');
+
+  if (res.status === 401 || res.status === 403) {
+    throw new AuthenticationError(t('authError'));
+  }
+
   return res.json();
 }

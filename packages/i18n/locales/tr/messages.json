@@ -26,5 +26,9 @@
   "hello": {
     "description": "Placeholder example",
     "message": "Hello $1"
+  },
+  "authError": {
+    "description": "Yetkilendirme hata mesajı",
+    "message": "Instagram'a giriş yapmanız gerekiyor veya yetkiniz bulunmuyor. Lütfen Instagram'a giriş yapın ve tekrar deneyin."
   }
 }

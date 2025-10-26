@@ -15,6 +15,7 @@
     "awesome": "Harika !!!",
     "noUnfollowersMessage": "Seni geri takip etmeyen arkadaşın yok.",
     "unfollowersMessage": "Seni geri takip etmeyen <bold>{{count}}</bol> kişi var.",
-    "unfollow": "Takibi bırak"
+    "unfollow": "Takibi bırak",
+    "authError": "Instagram'a giriş yapmanız gerekiyor veya yetkiniz bulunmuyor. Lütfen Instagram'a giriş yapın ve tekrar deneyin."
   }
 }

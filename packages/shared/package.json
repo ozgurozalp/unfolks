@@ -25,6 +25,7 @@
     "@extension/tsconfig": "workspace:*"
   },
   "dependencies": {
+    "@extension/i18n": "workspace:*",
     "@sentry/browser": "^8.45.0"
   }
 }

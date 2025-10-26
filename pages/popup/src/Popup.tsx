@@ -2,7 +2,7 @@ import { withErrorBoundary, withSuspense } from '@extension/shared';
 import { Button, cn, Toaster } from '@extension/ui';
 import { Trans, useTranslation } from 'react-i18next';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Loading from '@src/components/Loading';
 import UserList from '@src/components/UserList';
 import { useMainStore } from '@src/store';
@@ -16,32 +16,48 @@ function Popup() {
   const { t } = useTranslation();
   const { unfollowers, isInstagram, setUnfollowers, removeUnfollower, changeUserLoading } = useMainStore();
   const [loading, setLoading] = useState(false);
+
+  const callback = useCallback(
+    (request: Request) => {
+      switch (request.type) {
+        case TYPES.SET_PEOPLE: {
+          setUnfollowers(request.users ?? []);
+          setLoading(false);
+          break;
+        }
+        case TYPES.UNFOLLOWED: {
+          if (request.status && request.deletedId) removeUnfollower(request.deletedId);
+          break;
+        }
+        case TYPES.AUTH_ERROR: {
+          if (request.deletedId) changeUserLoading(request.deletedId, false);
+          setLoading(false);
+          toast.error(request.errorMessage || t('authError'), {
+            id: 'auth-error',
+            position: 'bottom-center',
+          });
+          break;
+        }
+        case TYPES.ERROR: {
+          if (request.deletedId) changeUserLoading(request.deletedId, false);
+          toast.error(t('notConnected'), {
+            id: 'connection-error',
+            position: 'bottom-center',
+          });
+          break;
+        }
+      }
+    },
+    [t, setUnfollowers, setLoading, removeUnfollower, changeUserLoading],
+  );
+
   useEffect(() => {
     const port = chrome.runtime.connect();
     port.onMessage.addListener(callback);
     return () => {
       port.onMessage.removeListener(callback);
     };
-  }, []);
-
-  function callback(request: Request) {
-    switch (request.type) {
-      case TYPES.SET_PEOPLE: {
-        setUnfollowers(request.users ?? []);
-        setLoading(false);
-        break;
-      }
-      case TYPES.UNFOLLOWED: {
-        if (request.status && request.deletedId) removeUnfollower(request.deletedId);
-        break;
-      }
-      case TYPES.ERROR: {
-        if (request.deletedId) changeUserLoading(request.deletedId, false);
-        alert('Bir hata oluştu. Lütfen tekrar deneyin.');
-        break;
-      }
-    }
-  }
+  }, [callback]);
 
   const getPeople = async () => {
     if (loading) return;
@@ -55,18 +71,13 @@ function Popup() {
       setLoading(true);
       await sendMessage({ type: TYPES.GET_PEOPLE });
     } catch (error: any) {
-      toast.error(t('notConnected'), { position: 'top-center' });
+      toast.error(t('notConnected'), {
+        id: 'get-people-error',
+        position: 'bottom-center',
+      });
       setLoading(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="grid h-full content-center">
-        <Loading className="justify-self-center" />
-      </div>
-    );
-  }
 
   let buttonText = t('refresh');
   if (!unfollowers) {
@@ -77,32 +88,38 @@ function Popup() {
 
   return (
     <>
-      <div
-        className={cn(
-          'app grid h-full py-4',
-          !showButtonIcon && 'items-center',
-          Array.isArray(unfollowers) ? 'not-fist-time' : 'first-time',
-        )}
-      >
-        {unfollowers === null && (
-          <div className="mb-4 space-y-4 text-center">
-            <p className="text-2xl">{t('firstTime')}</p>
-            {isInstagram ? (
-              <p className="text-balance text-lg">
-                <Trans i18nKey="infoInInstagram" values={{ buttonText }} components={{ bold: <strong /> }} />
-              </p>
-            ) : (
-              <p className="text-balance text-2xl">{t('infoNotInInstagram')}</p>
-            )}
-          </div>
-        )}
+      {loading ? (
+        <div className="grid h-full content-center">
+          <Loading className="justify-self-center" />
+        </div>
+      ) : (
+        <div
+          className={cn(
+            'app grid h-full py-4',
+            !showButtonIcon && 'items-center',
+            Array.isArray(unfollowers) ? 'not-fist-time' : 'first-time',
+          )}
+        >
+          {unfollowers === null && (
+            <div className="mb-4 space-y-4 text-center">
+              <p className="text-2xl">{t('firstTime')}</p>
+              {isInstagram ? (
+                <p className="text-balance text-lg">
+                  <Trans i18nKey="infoInInstagram" values={{ buttonText }} components={{ bold: <strong /> }} />
+                </p>
+              ) : (
+                <p className="text-balance text-2xl">{t('infoNotInInstagram')}</p>
+              )}
+            </div>
+          )}
 
-        <Button className="h-10 min-h-10 w-full" variant="outline" disabled={loading} onClick={getPeople}>
-          <RefreshCw className={cn('size-3', !showButtonIcon && 'hidden')} />
-          {isInstagram ? buttonText : t('goToInstagram')}
-        </Button>
-        <UserList users={unfollowers} />
-      </div>
+          <Button className="h-10 min-h-10 w-full" variant="outline" disabled={loading} onClick={getPeople}>
+            <RefreshCw className={cn('size-3', !showButtonIcon && 'hidden')} />
+            {isInstagram ? buttonText : t('goToInstagram')}
+          </Button>
+          <UserList users={unfollowers} />
+        </div>
+      )}
       <Toaster richColors />
     </>
   );

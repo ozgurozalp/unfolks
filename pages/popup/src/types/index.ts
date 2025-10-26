@@ -19,4 +19,5 @@ export type Request = {
   users?: User[];
   deletedId?: string;
   status?: boolean;
+  errorMessage?: string;
 };

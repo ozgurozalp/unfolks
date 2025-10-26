@@ -26,5 +26,9 @@
   "hello": {
     "description": "Placeholder example",
     "message": "Hello $1"
+  },
+  "authError": {
+    "description": "Authentication error message",
+    "message": "You need to log in to Instagram or you don't have permission. Please log in to Instagram and try again."
   }
 }
