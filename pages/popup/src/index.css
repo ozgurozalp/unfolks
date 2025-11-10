@@ -27,3 +27,7 @@ body {
   scrollbar-width: none;
 }
 
+
+#app-container {
+  container-type: inline-size;
+}
