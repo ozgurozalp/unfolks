@@ -18,6 +18,17 @@ body {
   @apply px-4 w-[420px] bg-background;
 }
 
+/* Mobile browser support (Kiwi, etc.) */
+body.is-mobile {
+  @apply w-full max-h-[100dvh] overflow-y-auto;
+}
+
+body.is-mobile,
+body.is-mobile #root,
+body.is-mobile #app-container {
+  @apply min-h-0 h-[100dvh];
+}
+
 *::-webkit-scrollbar {
   display: none;
 }
