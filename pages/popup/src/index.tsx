@@ -5,6 +5,7 @@ import Popup from '@src/Popup';
 import initTabSetup from '@src/helpers/initTabSetup';
 import './i18n';
 import { sentryClient } from '@extension/shared';
+import { RateLimiterProvider } from '@src/hooks/useRateLimitedUnfollow';
 
 function detectMobile() {
   const isMobile =
@@ -25,7 +26,11 @@ async function init() {
   sentryClient.init();
   const root = createRoot(appContainer);
   await initTabSetup();
-  root.render(<Popup />);
+  root.render(
+    <RateLimiterProvider>
+      <Popup />
+    </RateLimiterProvider>,
+  );
 }
 
 init();
