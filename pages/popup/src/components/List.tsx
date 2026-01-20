@@ -1,11 +1,10 @@
 import React, { type ReactNode } from 'react';
 import openWindow from '@src/helpers/openWindow';
 import type { User } from '@src/types';
-import { TYPES } from '@src/constants';
 import { useMainStore } from '@src/store';
 import { Avatar, AvatarFallback, AvatarImage, Button, cn, Spinner } from '@extension/ui';
-import sendMessage from '@src/helpers/sendMessage';
 import { useTranslation } from 'react-i18next';
+import { useRateLimitedUnfollow } from '@src/hooks/useRateLimitedUnfollow';
 
 interface ListProps {
   children: ReactNode;
@@ -26,20 +25,9 @@ interface ListItemProps {
 }
 
 export function ListItem({ user, className }: ListItemProps) {
-  const { changeUserLoading, isInstagram } = useMainStore();
+  const { isInstagram } = useMainStore();
   const { t } = useTranslation();
-
-  const unFollow = async (user: User) => {
-    changeUserLoading(user.id, true);
-    try {
-      await sendMessage({
-        type: TYPES.UNFOLLOW,
-        user,
-      });
-    } catch (error) {
-      changeUserLoading(user.id, false);
-    }
-  };
+  const { unfollow } = useRateLimitedUnfollow();
 
   return (
     <div className={className}>
@@ -69,7 +57,7 @@ export function ListItem({ user, className }: ListItemProps) {
             variant="outline"
             size="sm"
             disabled={user.unFollowLoading}
-            onClick={() => unFollow(user)}
+            onClick={() => unfollow(user)}
             className="relative ml-auto whitespace-nowrap"
           >
             <Spinner className={cn('absolute inset-0 m-auto size-4', !user.unFollowLoading && 'hidden')} />

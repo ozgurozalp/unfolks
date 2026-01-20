@@ -41,7 +41,11 @@ export default function UserList({ users }: Props) {
   return (
     <div className="mt-3 grid gap-y-3 w-full">
       <p className="text-center text-sm">
-        <Trans components={{ bold: <strong /> }} i18nKey="unfollowersMessage" values={{ count: users?.length }} />
+        <Trans
+          components={{ bold: <strong key="bold" /> }}
+          i18nKey="unfollowersMessage"
+          values={{ count: users?.length }}
+        />
       </p>
       <Tabs value={tab} onValueChange={value => setSelectedTab(value as any)} className="w-full">
         <TabsList className="grid w-fit mx-auto grid-cols-[auto_auto_auto] gap-x-1">

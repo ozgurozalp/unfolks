@@ -18,6 +18,7 @@
     "unfollow": "Unfollow",
     "authError": "You need to log in to Instagram or you don't have permission. Please log in to Instagram and try again.",
     "newUnfollowersWarning_one": "{{count}} person may have unfollowed you",
-    "newUnfollowersWarning_other": "{{count}} people may have unfollowed you"
+    "newUnfollowersWarning_other": "{{count}} people may have unfollowed you",
+    "rateLimitWarning": "Please wait {{seconds}} seconds before unfollowing another account"
   }
 }

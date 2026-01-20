@@ -123,7 +123,11 @@ function Popup() {
               <p className="text-2xl">{t('firstTime')}</p>
               {isInstagram ? (
                 <p className="text-balance text-lg">
-                  <Trans i18nKey="infoInInstagram" values={{ buttonText }} components={{ bold: <strong /> }} />
+                  <Trans
+                    i18nKey="infoInInstagram"
+                    values={{ buttonText }}
+                    components={{ bold: <strong key="bold" /> }}
+                  />
                 </p>
               ) : (
                 <p className="text-balance text-2xl">{t('infoNotInInstagram')}</p>

@@ -22,6 +22,7 @@
     "@extension/shared": "workspace:*",
     "@extension/storage": "workspace:*",
     "@extension/ui": "workspace:*",
+    "@tanstack/react-pacer": "^0.19.3",
     "i18next": "^24.0.5",
     "lodash": "^4.17.21",
     "lucide-react": "^0.462.0",
