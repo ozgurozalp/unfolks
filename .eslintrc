@@ -36,7 +36,8 @@
     "jsx-a11y/click-events-have-key-events": "off",
     "@typescript-eslint/no-explicit-any": "off",
     "react/prop-types": "off",
-    "tailwindcss/no-custom-classname": "off"
+    "tailwindcss/no-custom-classname": "off",
+    "import/named": "off"
   },
   "globals": {
     "chrome": "readonly"
