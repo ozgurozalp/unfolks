@@ -1,4 +1,6 @@
-body, #root, #app-container {
+body,
+#root,
+#app-container {
   @apply min-h-[400px];
 }
 
@@ -37,7 +39,6 @@ body.is-mobile #app-container {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
-
 
 #app-container {
   container-type: inline-size;

@@ -1,5 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import React, { useMemo, useState } from 'react';
 import Smiley from '@src/components/Smiley';
 import type { User } from '@src/types';
 import List, { ListItem } from '@src/components/List';
@@ -8,6 +7,7 @@ import { useMainStore } from '@src/store';
 import { useShallow } from 'zustand/react/shallow';
 import { isEqual } from 'lodash';
 import { Trans, useTranslation } from 'react-i18next';
+import { AnimatePresence, motion } from 'motion/react';
 
 interface Props {
   users: User[] | null;
@@ -39,7 +39,7 @@ export default function UserList({ users }: Props) {
   }
 
   return (
-    <div className="mt-3 grid gap-y-3 w-full">
+    <div className="mt-3 grid w-full gap-y-3">
       <p className="text-center text-sm">
         <Trans
           components={{ bold: <strong key="bold" /> }}
@@ -48,7 +48,7 @@ export default function UserList({ users }: Props) {
         />
       </p>
       <Tabs value={tab} onValueChange={value => setSelectedTab(value as any)} className="w-full">
-        <TabsList className="grid w-fit mx-auto grid-cols-[auto_auto_auto] gap-x-1">
+        <TabsList className="mx-auto grid w-fit grid-cols-[auto_auto_auto] gap-x-1">
           <TabsTrigger className="h-full" value="all">
             {t('allAccounts')}
           </TabsTrigger>

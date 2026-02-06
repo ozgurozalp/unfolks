@@ -5,6 +5,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useCallback, useEffect, useState } from 'react';
 import Loading from '@src/components/Loading';
 import UserList from '@src/components/UserList';
+import ProfileCard from '@src/components/ProfileCard';
 import { useMainStore } from '@src/store';
 import { TYPES } from '@src/constants';
 import type { Request } from '@src/types';
@@ -14,8 +15,16 @@ import sendMessage from '@src/helpers/sendMessage';
 
 function Popup() {
   const { t } = useTranslation();
-  const { unfollowers, isInstagram, setUnfollowers, removeUnfollower, changeUserLoading, previousUnfollowerCount } =
-    useMainStore();
+  const {
+    unfollowers,
+    isInstagram,
+    setUnfollowers,
+    removeUnfollower,
+    changeUserLoading,
+    previousUnfollowerCount,
+    viewer,
+    setViewer,
+  } = useMainStore();
   const [loading, setLoading] = useState(false);
 
   const callback = useCallback(
@@ -64,9 +73,13 @@ function Popup() {
           });
           break;
         }
+        case TYPES.SET_VIEWER_DATA: {
+          if (request.viewer) setViewer(request.viewer);
+          break;
+        }
       }
     },
-    [t, setUnfollowers, setLoading, removeUnfollower, changeUserLoading, previousUnfollowerCount],
+    [t, setUnfollowers, setLoading, removeUnfollower, changeUserLoading, previousUnfollowerCount, setViewer],
   );
 
   useEffect(() => {
@@ -76,6 +89,12 @@ function Popup() {
       port.onMessage.removeListener(callback);
     };
   }, [callback]);
+
+  useEffect(() => {
+    if (isInstagram) {
+      sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
+    }
+  }, [isInstagram]);
 
   const getPeople = async () => {
     if (loading) return;
@@ -134,6 +153,8 @@ function Popup() {
               )}
             </div>
           )}
+
+          {viewer && <ProfileCard viewer={viewer} />}
 
           <Button className="h-10 min-h-10 w-full" variant="outline" disabled={loading} onClick={getPeople}>
             <RefreshCw className={cn('size-3', !showButtonIcon && 'hidden')} />

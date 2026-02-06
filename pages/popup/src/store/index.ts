@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { User } from '@src/types';
+import type { InstagramViewer } from '@extension/shared';
 
 type Tab = 'all' | 'normal' | 'verified';
 
@@ -8,6 +9,8 @@ export interface MainStore {
   unfollowers: User[] | null;
   isInstagram: boolean;
   previousUnfollowerCount: number | null;
+  viewer: InstagramViewer | null;
+  setViewer: (viewer: InstagramViewer | null) => void;
   setUnfollowers: (unfollowers: User[]) => void;
   clearUnfollowers: () => void;
   removeUnfollower: (id: string) => void;
@@ -25,6 +28,8 @@ export const useMainStore = create<MainStore>()(
         isInstagram: false,
         unfollowers: null,
         previousUnfollowerCount: null,
+        viewer: null,
+        setViewer: viewer => set({ viewer }),
         setUnfollowers: unfollowers =>
           set({
             unfollowers,
@@ -48,6 +53,7 @@ export const useMainStore = create<MainStore>()(
         partialize: state => ({
           unfollowers: state.unfollowers,
           previousUnfollowerCount: state.previousUnfollowerCount,
+          viewer: state.viewer,
         }),
       },
     ),

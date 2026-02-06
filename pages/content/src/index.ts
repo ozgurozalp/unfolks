@@ -1,4 +1,4 @@
-import { captureException, getSharedData, Instagram, TYPES, AuthenticationError } from '@extension/shared';
+import { AuthenticationError, captureException, getSharedData, Instagram, TYPES } from '@extension/shared';
 import { sendMessageToBackground } from '@src/lib/utils';
 
 export const initSharedData = async () => {
@@ -10,6 +10,23 @@ export const initSharedData = async () => {
 
     chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
       sendResponse({ reply: 'ok' }); // Required to send response
+
+      if (request.type === TYPES.GET_VIEWER_DATA) {
+        const viewer = sharedData.config.viewer;
+        sendMessageToBackground({
+          type: TYPES.SET_VIEWER_DATA,
+          viewer: {
+            username: viewer.username,
+            full_name: viewer.full_name,
+            profile_pic_url: viewer.profile_pic_url,
+            profile_pic_url_hd: viewer.profile_pic_url_hd,
+            biography: viewer.biography,
+            external_url: viewer.external_url,
+            is_private: viewer.is_private,
+          },
+        }).catch(console.error);
+        return;
+      }
 
       if (request.type === TYPES.GET_PEOPLE) {
         try {

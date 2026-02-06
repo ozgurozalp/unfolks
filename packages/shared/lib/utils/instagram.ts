@@ -1,4 +1,4 @@
-import type { Options, User } from '.';
+import type { InstagramSharedData, Options, User } from '.';
 import { TYPES } from '.';
 import { t } from '@extension/i18n';
 
@@ -10,10 +10,10 @@ export class AuthenticationError extends Error {
 }
 
 export class Instagram {
-  sharedData: any;
+  sharedData: InstagramSharedData;
   followings: User[] = [];
 
-  constructor(sharedData: any) {
+  constructor(sharedData: InstagramSharedData) {
     this.sharedData = sharedData;
   }
 
@@ -50,13 +50,14 @@ export class Instagram {
   }
 
   async getFollowing(options: Options = {}): Promise<void> {
+    this.sharedData.entry_data;
     const urlParams = {
       query_hash: TYPES.FOLLOWING_HASH,
       variables: JSON.stringify({
         id: this.sharedData.config.viewerId,
         include_reel: true,
         fetch_mutual: false,
-        first: this.sharedData?.entry_data?.ProfilePage?.[0]?.graphql?.user?.edge_followed_by?.count ?? 100,
+        first: 100,
         ...(options.has_next_page && { after: options.end_cursor }),
       }),
     };
@@ -117,7 +118,7 @@ function getURL(data: any) {
   return url.toString();
 }
 
-export async function getSharedData() {
+export async function getSharedData(): Promise<InstagramSharedData | undefined> {
   if (!location.href.includes('instagram.com')) return;
 
   const res = await fetch('/data/shared_data/');

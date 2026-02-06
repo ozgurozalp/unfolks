@@ -1,3 +1,5 @@
+import type { InstagramViewer } from '@extension/shared';
+
 export interface Options {
   has_next_page?: boolean;
   end_cursor?: string;
@@ -20,4 +22,5 @@ export type Request = {
   deletedId?: string;
   status?: boolean;
   errorMessage?: string;
+  viewer?: InstagramViewer;
 };

@@ -1,11 +1,11 @@
-import { createContext, useCallback, useContext, type ReactNode } from 'react';
+import { createContext, type ReactNode, useCallback, useContext } from 'react';
 import { useMainStore } from '@src/store';
 import { TYPES } from '@src/constants';
 import sendMessage from '@src/helpers/sendMessage';
 import type { User } from '@src/types';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { useRateLimiter, type RateLimiter } from '@tanstack/react-pacer';
+import { type RateLimiter, useRateLimiter } from '@tanstack/react-pacer';
 
 // Safe values for Instagram rate limit:
 // Allow 1 unfollow per 3 seconds (20 per minute)
