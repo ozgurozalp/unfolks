@@ -121,48 +121,52 @@ function Popup() {
     buttonText = t('showUnfollowers');
   }
 
-  const showButtonIcon = isInstagram && unfollowers !== null;
+  const showButtonIcon = isInstagram;
+  const firstTime = unfollowers === null;
 
   return (
     <>
-      {loading ? (
-        <div className="grid h-full content-center">
-          <Loading className="justify-self-center" />
-        </div>
-      ) : (
-        <div
-          className={cn(
-            'app grid h-full py-4',
-            !showButtonIcon && 'items-center',
-            Array.isArray(unfollowers) ? 'not-fist-time' : 'first-time',
-          )}
-        >
-          {unfollowers === null && (
-            <div className="mb-4 space-y-4 text-center">
-              <p className="text-2xl">{t('firstTime')}</p>
-              {isInstagram ? (
-                <p className="text-balance text-lg">
-                  <Trans
-                    i18nKey="infoInInstagram"
-                    values={{ buttonText }}
-                    components={{ bold: <strong key="bold" /> }}
-                  />
-                </p>
-              ) : (
-                <p className="text-balance text-2xl">{t('infoNotInInstagram')}</p>
-              )}
-            </div>
-          )}
+      <div
+        className={cn(
+          'app grid h-full py-4',
+          !showButtonIcon && 'items-center',
+          Array.isArray(unfollowers) ? 'not-fist-time' : 'first-time',
+        )}
+      >
+        {firstTime && (
+          <div className="mb-4 space-y-4 text-center">
+            <p className="text-2xl">{t('firstTime')}</p>
+            {isInstagram ? (
+              <p className="text-balance text-lg">
+                <Trans i18nKey="infoInInstagram" values={{ buttonText }} components={{ bold: <strong key="bold" /> }} />
+              </p>
+            ) : (
+              <p className="text-balance text-2xl">{t('infoNotInInstagram')}</p>
+            )}
+          </div>
+        )}
 
-          {viewer && <ProfileCard viewer={viewer} />}
+        {viewer && !firstTime && (
+          <ProfileCard
+            action={
+              <Button className="h-10 min-h-10" variant="outline" disabled={loading} onClick={getPeople}>
+                <RefreshCw className={cn('size-3', !showButtonIcon && 'hidden', loading && 'animate-spin')} />
+                {isInstagram ? buttonText : t('goToInstagram')}
+              </Button>
+            }
+            viewer={viewer}
+          />
+        )}
 
+        {firstTime && (
           <Button className="h-10 min-h-10 w-full" variant="outline" disabled={loading} onClick={getPeople}>
-            <RefreshCw className={cn('size-3', !showButtonIcon && 'hidden')} />
+            <RefreshCw className={cn('size-3', !showButtonIcon && 'hidden', loading && 'animate-spin')} />
             {isInstagram ? buttonText : t('goToInstagram')}
           </Button>
-          <UserList users={unfollowers} />
-        </div>
-      )}
+        )}
+
+        <UserList users={unfollowers} />
+      </div>
       <Toaster richColors />
     </>
   );
