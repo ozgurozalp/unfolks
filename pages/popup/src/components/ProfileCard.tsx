@@ -9,7 +9,7 @@ interface ProfileCardProps {
 
 export default function ProfileCard({ viewer, action }: ProfileCardProps) {
   return (
-    <div className={'flex w-full flex-1 justify-between gap-4 border-b pb-4'}>
+    <div className={'flex w-full justify-between gap-4 border-b pb-4'}>
       <div className="flex items-center gap-3">
         <Avatar className="size-10 shrink-0">
           <AvatarFallback className="text-lg">
