@@ -35,7 +35,7 @@ export const useMainStore = create<MainStore>()(
             unfollowers,
             previousUnfollowerCount: unfollowers.length,
           }),
-        clearUnfollowers: () => set({ unfollowers: [] }),
+        clearUnfollowers: () => set({ unfollowers: null, previousUnfollowerCount: null }),
         removeUnfollower: id =>
           set(state => ({
             unfollowers: state.unfollowers?.filter(user => user.id !== id),

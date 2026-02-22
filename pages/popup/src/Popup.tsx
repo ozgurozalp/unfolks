@@ -53,7 +53,11 @@ function Popup() {
           break;
         }
         case TYPES.UNFOLLOWED: {
-          if (request.status && request.deletedId) removeUnfollower(request.deletedId);
+          if (request.status && request.deletedId) {
+            removeUnfollower(request.deletedId);
+          } else if (request.deletedId) {
+            changeUserLoading(request.deletedId, false);
+          }
           break;
         }
         case TYPES.AUTH_ERROR: {
@@ -74,12 +78,32 @@ function Popup() {
           break;
         }
         case TYPES.SET_VIEWER_DATA: {
-          if (request.viewer) setViewer(request.viewer);
+          if (request.viewer) {
+            if (viewer && unfollowers && viewer.username !== request.viewer.username) {
+              useMainStore.setState({ previousUnfollowerCount: null });
+              toast.warning(t('accountChanged'), {
+                id: 'account-changed',
+                position: 'bottom-center',
+                duration: 5000,
+              });
+            }
+            setViewer(request.viewer);
+          }
           break;
         }
       }
     },
-    [t, setUnfollowers, setLoading, removeUnfollower, changeUserLoading, previousUnfollowerCount, setViewer],
+    [
+      t,
+      setUnfollowers,
+      setLoading,
+      removeUnfollower,
+      changeUserLoading,
+      previousUnfollowerCount,
+      viewer,
+      unfollowers,
+      setViewer,
+    ],
   );
 
   useEffect(() => {
@@ -146,7 +170,7 @@ function Popup() {
           </div>
         )}
 
-        {viewer && !firstTime && (
+        {!firstTime && (
           <ProfileCard
             action={
               <Button className="h-10 min-h-10" variant="outline" disabled={loading} onClick={getPeople}>
