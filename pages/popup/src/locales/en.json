@@ -20,6 +20,7 @@
     "newUnfollowersWarning_one": "{{count}} person may have unfollowed you",
     "newUnfollowersWarning_other": "{{count}} people may have unfollowed you",
     "rateLimitWarning": "Please wait {{seconds}} seconds before unfollowing another account",
+    "listUpdated": "List has been updated",
     "accountChanged": "Profile has changed. Please refresh the list to see the updated unfollowers."
   }
 }

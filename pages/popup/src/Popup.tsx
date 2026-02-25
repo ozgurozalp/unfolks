@@ -46,6 +46,11 @@ function Popup() {
               position: 'bottom-center',
               duration: 5000,
             });
+          } else if (previousUnfollowerCount !== null) {
+            toast.success(t('listUpdated'), {
+              id: 'list-updated',
+              position: 'bottom-center',
+            });
           }
 
           setUnfollowers(newUsers);

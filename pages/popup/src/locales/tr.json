@@ -20,6 +20,7 @@
     "newUnfollowersWarning_one": "{{count}} kişi sizi takipten çıkmış olabilir",
     "newUnfollowersWarning_other": "{{count}} kişi sizi takipten çıkmış olabilir",
     "rateLimitWarning": "Başka bir hesabı takipten çıkmadan önce lütfen {{seconds}} saniye bekleyin",
+    "listUpdated": "Liste güncellendi",
     "accountChanged": "Profiliniz değişti. Güncel takip etmeyenleri görmek için listeyi yenileyin."
   }
 }
