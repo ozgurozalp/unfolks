@@ -1,8 +1,8 @@
 import { createContext, type ReactNode, useCallback, useContext } from 'react';
 import { useMainStore } from '@src/store';
-import { TYPES } from '@src/constants';
+import { TYPES } from '@extension/shared';
+import type { User } from '@extension/shared';
 import sendMessage from '@src/helpers/sendMessage';
-import type { User } from '@src/types';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { type RateLimiter, useRateLimiter } from '@tanstack/react-pacer';

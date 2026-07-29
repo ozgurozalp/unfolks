@@ -1,1 +1,0 @@
-export { TYPES } from './constants';

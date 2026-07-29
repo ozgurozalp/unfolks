@@ -1,6 +1,6 @@
 import React, { type ReactNode } from 'react';
 import openWindow from '@src/helpers/openWindow';
-import type { User } from '@src/types';
+import type { User } from '@extension/shared';
 import { useMainStore } from '@src/store';
 import { Avatar, AvatarFallback, AvatarImage, Button, cn, Spinner } from '@extension/ui';
 import { useTranslation } from 'react-i18next';

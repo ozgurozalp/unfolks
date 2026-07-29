@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import Smiley from '@src/components/Smiley';
-import type { User } from '@src/types';
+import type { User } from '@extension/shared';
 import List, { ListItem } from '@src/components/List';
 import { Input, Tabs, TabsContent, TabsList, TabsTrigger } from '@extension/ui';
-import { useMainStore } from '@src/store';
+import { useMainStore, type Tab } from '@src/store';
 import { useShallow } from 'zustand/react/shallow';
 import { isEqual } from 'lodash';
 import { Trans, useTranslation } from 'react-i18next';
@@ -13,7 +13,7 @@ interface Props {
   users: User[] | null;
 }
 
-const valueMap: Record<string, any> = {
+const verifiedFilterByTab: Record<Tab, boolean | undefined> = {
   all: undefined,
   normal: false,
   verified: true,
@@ -47,7 +47,7 @@ export default function UserList({ users }: Props) {
           values={{ count: users?.length }}
         />
       </p>
-      <Tabs value={tab} onValueChange={value => setSelectedTab(value as any)} className="w-full">
+      <Tabs value={tab} onValueChange={value => setSelectedTab(value as Tab)} className="w-full">
         <TabsList className="mx-auto grid w-fit grid-cols-[auto_auto_auto] gap-x-1">
           <TabsTrigger className="h-full" value="all">
             {t('allAccounts')}
@@ -75,13 +75,13 @@ export default function UserList({ users }: Props) {
 
 interface FilteredProps {
   users: User[];
-  type: 'all' | 'normal' | 'verified';
+  type: Tab;
 }
 
 function WithoutMemoFiltered({ type, users }: FilteredProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
-  const onlyVerified = valueMap[type];
+  const onlyVerified = verifiedFilterByTab[type];
 
   const filteredUsers = useMemo(() => {
     let _users = users;

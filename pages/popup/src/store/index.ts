@@ -1,9 +1,8 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import type { User } from '@src/types';
-import type { InstagramViewer } from '@extension/shared';
+import type { InstagramViewer, User } from '@extension/shared';
 
-type Tab = 'all' | 'normal' | 'verified';
+export type Tab = 'all' | 'normal' | 'verified';
 
 export interface MainStore {
   unfollowers: User[] | null;

@@ -105,9 +105,6 @@ importers:
       '@extension/shared':
         specifier: workspace:*
         version: link:../packages/shared
-      '@extension/storage':
-        specifier: workspace:*
-        version: link:../packages/storage
       webextension-polyfill:
         specifier: ^0.12.0
         version: 0.12.0
@@ -196,15 +193,6 @@ importers:
       '@sentry/browser':
         specifier: ^8.45.0
         version: 8.45.0
-    devDependencies:
-      '@extension/storage':
-        specifier: workspace:*
-        version: link:../storage
-      '@extension/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-
-  packages/storage:
     devDependencies:
       '@extension/tsconfig':
         specifier: workspace:*
@@ -304,9 +292,6 @@ importers:
       '@extension/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@extension/storage':
-        specifier: workspace:*
-        version: link:../../packages/storage
     devDependencies:
       '@extension/hmr':
         specifier: workspace:*
@@ -326,9 +311,6 @@ importers:
       '@extension/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@extension/storage':
-        specifier: workspace:*
-        version: link:../../packages/storage
       '@extension/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -353,9 +335,6 @@ importers:
       sonner:
         specifier: ^1.7.0
         version: 1.7.0(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
-      usehooks-ts:
-        specifier: ^3.1.0
-        version: 3.1.0(react@19.2.0)
       zustand:
         specifier: ^5.0.1
         version: 5.0.1(@types/react@19.2.0)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
@@ -3233,9 +3212,6 @@ packages:
   lodash.clonedeep@4.5.0:
     resolution: {integrity: sha512-H5ZhCF25riFd9uB5UCkVKo61m3S/xZk1x4wA6yp/L3RFP6Z/eHH1ymQcGLo7J3GMPfm0V/7m1tryHuGVxpqEBQ==}
 
-  lodash.debounce@4.0.8:
-    resolution: {integrity: sha512-FT1yDzDYEoYWhnSGnpE/4Kj1fLZkDFyqRb7fNt6FdYOSxlUWAtp42Eh6Wb0rGIv/m9Bgo7x4GhQbm5Ys4SG5ow==}
-
   lodash.flattendeep@4.4.0:
     resolution: {integrity: sha512-uHaJFihxmJcEX3kT4I23ABqKKalJ/zDrDg0lsFtc1h+3uw49SIJ5beyhx5ExVRti3AvKoOJngIj7xz3oylPdWQ==}
 
@@ -4383,12 +4359,6 @@ packages:
     resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
-  usehooks-ts@3.1.0:
-    resolution: {integrity: sha512-bBIa7yUyPhE1BCc0GmR96VU/15l/9gP1Ch5mYdLcFBaFGQsdmXkvjV0TtOqW1yUd6VjIwDunm+flSciCQXujiw==}
-    engines: {node: '>=16.15.0'}
-    peerDependencies:
-      react: ^16.8.0  || ^17 || ^18
 
   userhome@1.0.0:
     resolution: {integrity: sha512-ayFKY3H+Pwfy4W98yPdtH1VqH4psDeyW8lYYFzfecR9d6hqLpqhecktvYR3SEEXt7vG0S1JEpciI3g94pMErig==}
@@ -7680,8 +7650,6 @@ snapshots:
 
   lodash.clonedeep@4.5.0: {}
 
-  lodash.debounce@4.0.8: {}
-
   lodash.flattendeep@4.4.0: {}
 
   lodash.isequal@4.5.0: {}
@@ -8916,11 +8884,6 @@ snapshots:
 
   use-sync-external-store@1.6.0(react@19.2.0):
     dependencies:
-      react: 19.2.0
-
-  usehooks-ts@3.1.0(react@19.2.0):
-    dependencies:
-      lodash.debounce: 4.0.8
       react: 19.2.0
 
   userhome@1.0.0: {}

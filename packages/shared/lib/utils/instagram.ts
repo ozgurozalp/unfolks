@@ -1,6 +1,19 @@
 import type { InstagramSharedData, Options, User } from '.';
-import { TYPES } from '.';
 import { t } from '@extension/i18n';
+
+const FOLLOWING_QUERY_HASH = '3dec7e2c57367ef3da3d987d89f9dbc8';
+
+interface FollowEdge {
+  node: {
+    id: string;
+    username: string;
+    full_name: string;
+    profile_pic_url: string;
+    follows_viewer: boolean;
+    is_private: boolean;
+    is_verified: boolean;
+  };
+}
 
 export class AuthenticationError extends Error {
   constructor(message: string) {
@@ -50,9 +63,8 @@ export class Instagram {
   }
 
   async getFollowing(options: Options = {}): Promise<void> {
-    this.sharedData.entry_data;
     const urlParams = {
-      query_hash: TYPES.FOLLOWING_HASH,
+      query_hash: FOLLOWING_QUERY_HASH,
       variables: JSON.stringify({
         id: this.sharedData.config.viewerId,
         include_reel: true,
@@ -90,7 +102,7 @@ export class Instagram {
       throw error;
     }
   }
-  setFollowings(_followings: any[]) {
+  setFollowings(_followings: FollowEdge[]) {
     for (const { node: following } of _followings) {
       this.followings.push({
         username: following.username,
@@ -112,9 +124,9 @@ export class Instagram {
   }
 }
 
-function getURL(data: any) {
+function getURL(data: Record<string, string>) {
   const url = new URL('https://www.instagram.com/graphql/query/');
-  Object.keys(data).forEach(key => url.searchParams.append(key, data[key]));
+  Object.entries(data).forEach(([key, value]) => url.searchParams.append(key, value));
   return url.toString();
 }
 
