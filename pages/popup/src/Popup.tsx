@@ -6,6 +6,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useRef, useState } from 'react';
 import UserList from '@src/components/UserList';
 import ProfileCard from '@src/components/ProfileCard';
+import AnnouncementDialog from '@src/components/AnnouncementDialog';
 import { useMainStore } from '@src/store';
 import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
@@ -178,6 +179,7 @@ function Popup() {
 
         <UserList users={unfollowers} />
       </div>
+      {unfollowers && unfollowers.length > 0 && <AnnouncementDialog />}
       <Toaster richColors />
     </>
   );

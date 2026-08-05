@@ -14,13 +14,18 @@
     "noResults": "Hiçbir sonuç bulunamadı.",
     "awesome": "Harika !!!",
     "noUnfollowersMessage": "Seni geri takip etmeyen arkadaşın yok.",
-    "unfollowersMessage": "Seni geri takip etmeyen <bold>{{count}}</bol> kişi var.",
+    "unfollowersMessage": "Seni geri takip etmeyen <bold>{{count}}</bold> kişi var.",
     "unfollow": "Takibi bırak",
     "authError": "Instagram'a giriş yapmanız gerekiyor veya yetkiniz bulunmuyor. Lütfen Instagram'a giriş yapın ve tekrar deneyin.",
     "newUnfollowersWarning_one": "{{count}} kişi sizi takipten çıkmış olabilir",
     "newUnfollowersWarning_other": "{{count}} kişi sizi takipten çıkmış olabilir",
     "rateLimitWarning": "Başka bir hesabı takipten çıkmadan önce lütfen {{seconds}} saniye bekleyin",
     "listUpdated": "Liste güncellendi",
-    "accountChanged": "Profiliniz değişti. Güncel takip etmeyenleri görmek için listeyi yenileyin."
+    "accountChanged": "Profiliniz değişti. Güncel takip etmeyenleri görmek için listeyi yenileyin.",
+    "announcementNew": "YENİ",
+    "announcementTitle": "Taş Kağıt Makas Online",
+    "announcementDescription": "Yeni oyunumuz App Store'da! Arkadaşlarına meydan oku, online karşılıklı Taş Kağıt Makas oyna.",
+    "announcementButton": "App Store'dan indir",
+    "announcementClose": "Kapat"
   }
 }
