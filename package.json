@@ -1,6 +1,6 @@
 {
   "name": "unfolks",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "A Chrome extension to find people who don't follow you back on Instagram.",
   "license": "MIT",
   "author": {
@@ -46,14 +46,14 @@
   },
   "dependencies": {
     "eslint-plugin-tailwindcss": "^3.17.5",
-    "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react": "19.0.3",
+    "react-dom": "19.0.3"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",
     "@types/node": "^20.17.9",
-    "@types/react": "19.2.0",
-    "@types/react-dom": "19.2.0",
+    "@types/react": "19.0.3",
+    "@types/react-dom": "19.0.3",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "autoprefixer": "^10.4.20",

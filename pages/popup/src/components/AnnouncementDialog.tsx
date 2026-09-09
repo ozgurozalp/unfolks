@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
@@ -22,7 +23,11 @@ export default function AnnouncementDialog() {
     chrome.tabs.create({ url: APP_STORE_URL, active: true }).catch(console.error);
   };
 
-  return (
+  // Rendered via portal into <body>: #app-container has `container-type: inline-size`,
+  // which makes it the containing block for position:fixed descendants. Inside it, the
+  // enter/exit translate would overflow the container, grow the document height and make
+  // Chrome resize the popup window every frame (visible flicker/jitter).
+  return createPortal(
     <AnimatePresence>
       {visible && (
         <motion.div
@@ -74,7 +79,8 @@ export default function AnnouncementDialog() {
           </div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 
