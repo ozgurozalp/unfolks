@@ -34,5 +34,9 @@
   "newUnfollowersWarning": {
     "description": "Yeni takipten çıkanlar tespit edildiğinde uyarı mesajı",
     "message": "$1 kişi sizi takipten çıkmış olabilir"
+  },
+  "actionBlocked": {
+    "description": "Instagram bir işlemi geçici olarak engellediğinde gösterilir (feedback_required / checkpoint)",
+    "message": "Instagram bu işlemi geçici olarak engelledi. Lütfen birkaç saat bekleyip tekrar deneyin."
   }
 }

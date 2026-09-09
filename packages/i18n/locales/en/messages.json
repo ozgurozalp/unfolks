@@ -34,5 +34,9 @@
   "newUnfollowersWarning": {
     "description": "Warning message when new unfollowers detected",
     "message": "$1 person(s) may have unfollowed you"
+  },
+  "actionBlocked": {
+    "description": "Shown when Instagram temporarily blocks an action (feedback_required / checkpoint)",
+    "message": "Instagram temporarily blocked this action. Please wait a few hours and try again."
   }
 }

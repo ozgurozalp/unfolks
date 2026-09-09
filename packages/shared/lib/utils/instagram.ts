@@ -1,9 +1,16 @@
-import type { InstagramSharedData, User } from '.';
+import type { InstagramSharedData, ScanProgress, User } from '.';
 import { t } from '@extension/i18n';
 
 const IG_WEB_APP_ID = '936619743392459';
-const FRIENDSHIP_PAGE_SIZE = 50;
-const PAGE_DELAY_MS = 350;
+const FRIENDSHIP_PAGE_SIZE = 200;
+const SCAN_DELAY_MIN_MS = 700;
+const SCAN_DELAY_MAX_MS = 1500;
+const SCAN_PAUSE_EVERY_PAGES = 5;
+const SCAN_PAUSE_MS = 8000;
+const MAX_RETRIES = 3;
+const BACKOFF_BASE_MS = 2000;
+
+type ProgressCallback = (progress: ScanProgress) => void;
 
 interface FriendshipStatus {
   following?: boolean;
@@ -29,6 +36,14 @@ interface FriendshipsPage {
   message?: string;
 }
 
+interface UnfollowResponse {
+  status?: string;
+  message?: string;
+  feedback_required?: boolean;
+  spam?: boolean;
+  friendship_status?: { following?: boolean };
+}
+
 export class AuthenticationError extends Error {
   constructor(message: string) {
     super(message);
@@ -44,46 +59,57 @@ export class Instagram {
     this.sharedData = sharedData;
   }
 
-  async getPeople() {
+  async getPeople(onProgress?: ProgressCallback) {
     this.clearStorage();
-    await this.getFollowing();
+    await this.getFollowing(onProgress);
     return this.getUnFollowers();
   }
 
   async unFollow(user: User) {
     const paths = [`/api/v1/web/friendships/${user.id}/unfollow/`, `/web/friendships/${user.id}/unfollow/`];
+    let blocked = false;
 
     for (const path of paths) {
+      const response = await this.postForm(path, { user_id: user.id, container_module: 'profile' });
+
+      let data: UnfollowResponse = {};
       try {
-        const response = await this.postForm(path, {
-          user_id: user.id,
-          container_module: 'profile',
-        });
-        const data = await response.json();
-        if (data.status === 'ok' || data.friendship_status?.following === false) {
-          return { status: true, deletedId: user.id };
-        }
-      } catch (error) {
-        if (error instanceof AuthenticationError) throw error;
+        data = (await response.json()) as UnfollowResponse;
+      } catch {
+        // Some endpoints return an empty/non-JSON body on success.
+      }
+
+      if (data.status === 'ok' || data.friendship_status?.following === false) {
+        return { status: true, deletedId: user.id };
+      }
+
+      if (isActionBlocked(response.status, data)) {
+        blocked = true;
+        break;
       }
     }
 
+    if (blocked) throw new Error(t('actionBlocked'));
     throw new Error('Unfollow failed');
   }
 
-  async getFollowing(): Promise<void> {
-    const following = await this.fetchFriendshipUsers('following');
+  async getFollowing(onProgress?: ProgressCallback): Promise<void> {
+    const counts = await this.getProfileCounts();
+    const total = (counts.following ?? 0) + (counts.followers ?? 0);
+
+    const following = await this.fetchFriendshipUsers('following', loaded =>
+      onProgress?.({ phase: 'following', current: loaded, total }),
+    );
 
     if (following.length === 0) {
-      const expectedCount = await this.getFollowingCount();
-      if (expectedCount && expectedCount > 0) {
+      if (counts.following && counts.following > 0) {
         throw new Error('Following list could not be loaded');
       }
       this.followings = [];
       return;
     }
 
-    const followBackIds = await this.getFollowBackIds(following);
+    const followBackIds = await this.getFollowBackIds(following, following.length, total, onProgress);
 
     this.followings = following.flatMap(user => {
       const id = getFriendshipUserId(user);
@@ -128,8 +154,6 @@ export class Instagram {
       throw new AuthenticationError(t('authError'));
     }
 
-    if (!response.ok) throw response;
-
     return response;
   }
 
@@ -142,8 +166,14 @@ export class Instagram {
     };
   }
 
-  private async getFollowBackIds(users: FriendshipUser[]): Promise<Set<string>> {
+  private async getFollowBackIds(
+    users: FriendshipUser[],
+    followingCount: number,
+    total: number,
+    onProgress?: ProgressCallback,
+  ): Promise<Set<string>> {
     if (users.every(user => typeof user.friendship_status?.followed_by === 'boolean')) {
+      onProgress?.({ phase: 'followers', current: total, total });
       return new Set(
         users
           .filter(user => user.friendship_status?.followed_by)
@@ -152,45 +182,80 @@ export class Instagram {
       );
     }
 
-    const followers = await this.fetchFriendshipUsers('followers');
+    const followers = await this.fetchFriendshipUsers('followers', loaded =>
+      onProgress?.({ phase: 'followers', current: followingCount + loaded, total }),
+    );
     return new Set(followers.map(getFriendshipUserId).filter(Boolean));
   }
 
-  private async fetchFriendshipUsers(list: 'following' | 'followers', maxId?: string): Promise<FriendshipUser[]> {
+  private async fetchFriendshipUsers(
+    list: 'following' | 'followers',
+    onPage?: (loaded: number) => void,
+  ): Promise<FriendshipUser[]> {
     const userId = this.sharedData.config.viewerId;
-    const url = new URL(`https://www.instagram.com/api/v1/friendships/${userId}/${list}/`);
-    url.searchParams.set('count', String(FRIENDSHIP_PAGE_SIZE));
-    url.searchParams.set('search_surface', 'follow_list_page');
-    if (maxId) url.searchParams.set('max_id', maxId);
+    const all: FriendshipUser[] = [];
+    let maxId: string | undefined;
+    let page = 0;
 
-    const response = await fetch(url.toString(), {
-      headers: this.igHeaders(),
-      credentials: 'include',
-    });
+    for (;;) {
+      const url = new URL(`https://www.instagram.com/api/v1/friendships/${userId}/${list}/`);
+      url.searchParams.set('count', String(FRIENDSHIP_PAGE_SIZE));
+      url.searchParams.set('search_surface', 'follow_list_page');
+      if (maxId) url.searchParams.set('max_id', maxId);
 
-    if (response.status === 401 || response.status === 403) {
-      throw new AuthenticationError(t('authError'));
+      const data = await this.igGet(url.toString(), list);
+      const users = data.users ?? [];
+      all.push(...users);
+      onPage?.(all.length);
+      page += 1;
+
+      const nextMaxId = data.next_max_id;
+      if (!nextMaxId || users.length === 0 || nextMaxId === maxId) break;
+      maxId = nextMaxId;
+
+      if (SCAN_PAUSE_EVERY_PAGES > 0 && page % SCAN_PAUSE_EVERY_PAGES === 0) {
+        await delay(SCAN_PAUSE_MS);
+      } else {
+        await delay(randomBetween(SCAN_DELAY_MIN_MS, SCAN_DELAY_MAX_MS));
+      }
     }
 
-    if (!response.ok) throw new Error(`Request failed with status: ${response.status}`);
-
-    const data = (await response.json()) as FriendshipsPage;
-    if (data.status && data.status !== 'ok') {
-      throw new Error(data.message || `Failed to fetch ${list}`);
-    }
-
-    const users = data.users ?? [];
-    const nextMaxId = data.next_max_id;
-
-    if (nextMaxId && users.length > 0 && nextMaxId !== maxId) {
-      await delay(PAGE_DELAY_MS);
-      return users.concat(await this.fetchFriendshipUsers(list, nextMaxId));
-    }
-
-    return users;
+    return all;
   }
 
-  private async getFollowingCount(): Promise<number | null> {
+  private async igGet(url: string, list: 'following' | 'followers'): Promise<FriendshipsPage> {
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await fetch(url, {
+        headers: this.igHeaders(),
+        credentials: 'include',
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        throw new AuthenticationError(t('authError'));
+      }
+
+      if (response.status === 429 || response.status >= 500) {
+        if (attempt >= MAX_RETRIES) {
+          throw new Error(`Request failed with status: ${response.status}`);
+        }
+        const retryAfter = Number(response.headers.get('retry-after'));
+        const wait = retryAfter > 0 ? retryAfter * 1000 : BACKOFF_BASE_MS * 2 ** attempt;
+        await delay(wait + randomBetween(0, 500));
+        continue;
+      }
+
+      if (!response.ok) throw new Error(`Request failed with status: ${response.status}`);
+
+      const data = (await response.json()) as FriendshipsPage;
+      if (data.status && data.status !== 'ok') {
+        throw new Error(data.message || `Failed to fetch ${list}`);
+      }
+
+      return data;
+    }
+  }
+
+  private async getProfileCounts(): Promise<{ following: number | null; followers: number | null }> {
     try {
       const username = this.sharedData.config.viewer.username;
       const response = await fetch(
@@ -201,12 +266,16 @@ export class Instagram {
         },
       );
 
-      if (!response.ok) return null;
+      if (!response.ok) return { following: null, followers: null };
 
       const json = await response.json();
-      return json.data?.user?.edge_follow?.count ?? json.data?.user?.following_count ?? null;
+      const user = json.data?.user;
+      return {
+        following: user?.edge_follow?.count ?? user?.following_count ?? null,
+        followers: user?.edge_followed_by?.count ?? user?.follower_count ?? null,
+      };
     } catch {
-      return null;
+      return { following: null, followers: null };
     }
   }
 }
@@ -217,6 +286,19 @@ function getFriendshipUserId(user: FriendshipUser) {
 
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function randomBetween(min: number, max: number) {
+  return Math.floor(min + Math.random() * (max - min));
+}
+
+function isActionBlocked(status: number, data: UnfollowResponse): boolean {
+  if (data.feedback_required || data.spam) return true;
+  const message = data.message?.toLowerCase() ?? '';
+  if (message.includes('feedback_required') || message.includes('checkpoint_required') || message.includes('spam')) {
+    return true;
+  }
+  return status === 429;
 }
 
 export async function getSharedData(): Promise<InstagramSharedData | undefined> {

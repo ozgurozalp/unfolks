@@ -25,6 +25,7 @@ function Popup() {
     setViewer,
   } = useMainStore();
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
 
   const handleMessage = (request: Request) => {
     switch (request.type) {
@@ -53,6 +54,13 @@ function Popup() {
 
         setUnfollowers(newUsers);
         setLoading(false);
+        setProgress(null);
+        break;
+      }
+      case TYPES.PROGRESS: {
+        if (typeof request.current === 'number' && typeof request.total === 'number') {
+          setProgress({ current: request.current, total: request.total });
+        }
         break;
       }
       case TYPES.UNFOLLOWED: {
@@ -66,6 +74,7 @@ function Popup() {
       case TYPES.AUTH_ERROR: {
         if (request.deletedId) changeUserLoading(request.deletedId, false);
         setLoading(false);
+        setProgress(null);
         toast.error(request.errorMessage || t('authError'), {
           id: 'auth-error',
           position: 'bottom-center',
@@ -74,6 +83,8 @@ function Popup() {
       }
       case TYPES.ERROR: {
         if (request.deletedId) changeUserLoading(request.deletedId, false);
+        setLoading(false);
+        setProgress(null);
         toast.error(request.errorMessage || t('notConnected'), {
           id: 'connection-error',
           position: 'bottom-center',
@@ -126,6 +137,7 @@ function Popup() {
 
     try {
       setLoading(true);
+      setProgress(null);
       await sendMessage({ type: TYPES.GET_PEOPLE });
     } catch {
       toast.error(t('notConnected'), {
@@ -133,14 +145,30 @@ function Popup() {
         position: 'bottom-center',
       });
       setLoading(false);
+      setProgress(null);
     }
   };
 
-  const buttonText = unfollowers ? t('refresh') : t('showUnfollowers');
+  const progressPercent =
+    progress && progress.total > 0 ? Math.min(99, Math.round((progress.current / progress.total) * 100)) : null;
+
+  const idleButtonText = unfollowers ? t('refresh') : t('showUnfollowers');
+  const buttonText = loading
+    ? progressPercent !== null
+      ? t('scanningPercent', { percent: progressPercent })
+      : progress && progress.current > 0
+        ? t('scanningCount', { count: progress.current })
+        : t('scanning')
+    : idleButtonText;
   const firstTime = unfollowers === null;
 
   const renderRefreshButton = (className?: string) => (
-    <Button className={cn('h-10 min-h-10', className)} variant="outline" disabled={loading} onClick={getPeople}>
+    <Button
+      className={cn('h-10 min-h-10 min-w-[11rem] justify-center whitespace-nowrap', className)}
+      variant="outline"
+      disabled={loading}
+      onClick={getPeople}
+    >
       <RefreshCw className={cn('size-3', !isInstagram && 'hidden', loading && 'animate-spin')} />
       {isInstagram ? buttonText : t('goToInstagram')}
     </Button>
@@ -163,7 +191,7 @@ function Popup() {
                 <p className="text-balance text-lg">
                   <Trans
                     i18nKey="infoInInstagram"
-                    values={{ buttonText }}
+                    values={{ buttonText: idleButtonText }}
                     components={{ bold: <strong key="bold" /> }}
                   />
                 </p>
@@ -175,6 +203,18 @@ function Popup() {
           </>
         ) : (
           <ProfileCard action={renderRefreshButton()} viewer={viewer} />
+        )}
+
+        {loading && (
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn(
+                'h-full rounded-full bg-primary',
+                progressPercent !== null ? 'transition-[width] duration-300 ease-out' : 'w-1/3 animate-pulse',
+              )}
+              style={progressPercent !== null ? { width: `${progressPercent}%` } : undefined}
+            />
+          </div>
         )}
 
         <UserList users={unfollowers} />

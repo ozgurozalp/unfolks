@@ -21,7 +21,14 @@ export const initSharedData = async () => {
 
       if (request.type === TYPES.GET_PEOPLE) {
         try {
-          const users = await instagram.getPeople();
+          const users = await instagram.getPeople(progress => {
+            sendMessageToBackground({
+              type: TYPES.PROGRESS,
+              phase: progress.phase,
+              current: progress.current,
+              total: progress.total,
+            }).catch(console.error);
+          });
           sendMessageToBackground({
             users,
             type: TYPES.SET_PEOPLE,

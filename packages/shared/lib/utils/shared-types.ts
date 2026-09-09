@@ -11,6 +11,14 @@ export interface User {
   isVerified: boolean;
 }
 
+export type ProgressPhase = 'following' | 'followers';
+
+export interface ScanProgress {
+  phase: ProgressPhase;
+  current: number;
+  total: number;
+}
+
 export type Request = {
   type: string;
   users?: User[];
@@ -18,11 +26,15 @@ export type Request = {
   status?: boolean;
   errorMessage?: string;
   viewer?: InstagramViewer;
+  phase?: ProgressPhase;
+  current?: number;
+  total?: number;
 };
 
 export enum TYPES {
   GET_PEOPLE = 'GET_PEOPLE',
   SET_PEOPLE = 'SET_PEOPLE',
+  PROGRESS = 'PROGRESS',
   UNFOLLOW = 'UNFOLLOW',
   ERROR = 'ERROR',
   AUTH_ERROR = 'AUTH_ERROR',
