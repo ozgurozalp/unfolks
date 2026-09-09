@@ -19,9 +19,11 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@base-ui/react": "^1.8.0",
     "@extension/shared": "workspace:*",
     "@extension/ui": "workspace:*",
-    "@tanstack/react-pacer": "^0.19.3",
+    "@tanstack/react-pacer": "^0.23.0",
+    "date-fns": "^4.4.0",
     "i18next": "^24.0.5",
     "lodash": "^4.17.21",
     "lucide-react": "^0.462.0",

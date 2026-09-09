@@ -21,6 +21,9 @@
     "e2e": {
       "cache": false
     },
+    "test": {
+      "cache": false
+    },
     "type-check": {
       "cache": false
     },

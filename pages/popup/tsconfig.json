@@ -2,6 +2,7 @@
   "extends": "@extension/tsconfig/base",
   "compilerOptions": {
     "baseUrl": ".",
+    "moduleResolution": "bundler",
     "paths": {
       "@src/*": ["src/*"]
     },

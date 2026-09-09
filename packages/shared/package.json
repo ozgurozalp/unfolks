@@ -15,13 +15,15 @@
     "clean:turbo": "rimraf .turbo",
     "clean": "pnpm clean:bundle && pnpm clean:node_modules && pnpm clean:turbo",
     "ready": "node build.mjs",
+    "test": "vitest run",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "pnpm lint --fix",
     "prettier": "prettier . --write --ignore-path ../../.prettierignore",
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@extension/tsconfig": "workspace:*"
+    "@extension/tsconfig": "workspace:*",
+    "vitest": "^2.1.9"
   },
   "dependencies": {
     "@extension/i18n": "workspace:*",

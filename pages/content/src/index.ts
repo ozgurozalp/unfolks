@@ -1,4 +1,11 @@
-import { AuthenticationError, captureException, getSharedData, Instagram, TYPES } from '@extension/shared';
+import {
+  ActionBlockedError,
+  AuthenticationError,
+  captureException,
+  getSharedData,
+  Instagram,
+  TYPES,
+} from '@extension/shared';
 import { sendMessageToBackground } from '@src/lib/utils';
 
 export const initSharedData = async () => {
@@ -64,6 +71,15 @@ export const initSharedData = async () => {
               type: TYPES.AUTH_ERROR,
               errorMessage: error.message,
               deletedId: request.user?.id,
+            }).catch(console.error);
+          } else if (error instanceof ActionBlockedError) {
+            sendMessageToBackground({
+              status: false,
+              type: TYPES.ACTION_BLOCKED,
+              user: request.user,
+              deletedId: request.user?.id,
+              errorMessage: error.message,
+              cooldownMs: error.cooldownMs,
             }).catch(console.error);
           } else {
             sendMessageToBackground({

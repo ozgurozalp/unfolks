@@ -25,9 +25,10 @@ interface ListItemProps {
 }
 
 export function ListItem({ user, className }: ListItemProps) {
-  const { isInstagram } = useMainStore();
+  const { isInstagram, blockedUntil } = useMainStore();
   const { t } = useTranslation();
   const { unfollow } = useRateLimitedUnfollow();
+  const isBlocked = typeof blockedUntil === 'number' && blockedUntil > Date.now();
 
   return (
     <div className={className}>
@@ -56,7 +57,7 @@ export function ListItem({ user, className }: ListItemProps) {
           <Button
             variant="outline"
             size="sm"
-            disabled={user.unFollowLoading}
+            disabled={user.unFollowLoading || isBlocked}
             onClick={() => unfollow(user)}
             className="relative ml-auto whitespace-nowrap"
           >

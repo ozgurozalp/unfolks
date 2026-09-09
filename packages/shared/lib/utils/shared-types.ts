@@ -29,6 +29,7 @@ export type Request = {
   phase?: ProgressPhase;
   current?: number;
   total?: number;
+  cooldownMs?: number;
 };
 
 export enum TYPES {
@@ -38,6 +39,7 @@ export enum TYPES {
   UNFOLLOW = 'UNFOLLOW',
   ERROR = 'ERROR',
   AUTH_ERROR = 'AUTH_ERROR',
+  ACTION_BLOCKED = 'ACTION_BLOCKED',
   UNFOLLOWED = 'UNFOLLOWED',
   GET_VIEWER_DATA = 'GET_VIEWER_DATA',
   SET_VIEWER_DATA = 'SET_VIEWER_DATA',

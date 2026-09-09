@@ -1,5 +1,16 @@
 import type { InstagramSharedData, ScanProgress, User } from '.';
 import { t } from '@extension/i18n';
+import {
+  computeUnfollowers,
+  extractFollowBackIds,
+  getFriendshipUserId,
+  isActionBlocked,
+  mapFollowingToUsers,
+  randomBetween,
+  shouldStopPaging,
+  type FriendshipUser,
+  type UnfollowResponse,
+} from './instagram-utils';
 
 const IG_WEB_APP_ID = '936619743392459';
 const FRIENDSHIP_PAGE_SIZE = 200;
@@ -9,25 +20,10 @@ const SCAN_PAUSE_EVERY_PAGES = 5;
 const SCAN_PAUSE_MS = 8000;
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 2000;
+/** Local cooldown enforced after Instagram soft-blocks an action. */
+export const ACTION_BLOCK_COOLDOWN_MS = 15 * 60 * 1000;
 
 type ProgressCallback = (progress: ScanProgress) => void;
-
-interface FriendshipStatus {
-  following?: boolean;
-  followed_by?: boolean;
-}
-
-interface FriendshipUser {
-  pk?: number | string;
-  pk_id?: string;
-  id?: string;
-  username: string;
-  full_name?: string;
-  profile_pic_url?: string;
-  is_private?: boolean;
-  is_verified?: boolean;
-  friendship_status?: FriendshipStatus;
-}
 
 interface FriendshipsPage {
   users?: FriendshipUser[];
@@ -36,18 +32,19 @@ interface FriendshipsPage {
   message?: string;
 }
 
-interface UnfollowResponse {
-  status?: string;
-  message?: string;
-  feedback_required?: boolean;
-  spam?: boolean;
-  friendship_status?: { following?: boolean };
-}
-
 export class AuthenticationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'AuthenticationError';
+  }
+}
+
+export class ActionBlockedError extends Error {
+  cooldownMs: number;
+  constructor(message: string, cooldownMs = ACTION_BLOCK_COOLDOWN_MS) {
+    super(message);
+    this.name = 'ActionBlockedError';
+    this.cooldownMs = cooldownMs;
   }
 }
 
@@ -89,7 +86,7 @@ export class Instagram {
       }
     }
 
-    if (blocked) throw new Error(t('actionBlocked'));
+    if (blocked) throw new ActionBlockedError(t('actionBlocked'));
     throw new Error('Unfollow failed');
   }
 
@@ -111,26 +108,11 @@ export class Instagram {
 
     const followBackIds = await this.getFollowBackIds(following, following.length, total, onProgress);
 
-    this.followings = following.flatMap(user => {
-      const id = getFriendshipUserId(user);
-      if (!id || !user.username) return [];
-
-      return [
-        {
-          id,
-          username: user.username,
-          full_name: user.full_name ?? '',
-          image: user.profile_pic_url ?? '',
-          isFollowingMe: followBackIds.has(id),
-          isPrivate: Boolean(user.is_private),
-          isVerified: Boolean(user.is_verified),
-        },
-      ];
-    });
+    this.followings = mapFollowingToUsers(following, followBackIds);
   }
 
   getUnFollowers() {
-    return this.followings.filter(following => !following.isFollowingMe);
+    return computeUnfollowers(this.followings);
   }
 
   clearStorage() {
@@ -172,14 +154,10 @@ export class Instagram {
     total: number,
     onProgress?: ProgressCallback,
   ): Promise<Set<string>> {
-    if (users.every(user => typeof user.friendship_status?.followed_by === 'boolean')) {
+    const inlineFollowBackIds = extractFollowBackIds(users);
+    if (inlineFollowBackIds) {
       onProgress?.({ phase: 'followers', current: total, total });
-      return new Set(
-        users
-          .filter(user => user.friendship_status?.followed_by)
-          .map(getFriendshipUserId)
-          .filter(Boolean),
-      );
+      return inlineFollowBackIds;
     }
 
     const followers = await this.fetchFriendshipUsers('followers', loaded =>
@@ -210,8 +188,8 @@ export class Instagram {
       page += 1;
 
       const nextMaxId = data.next_max_id;
-      if (!nextMaxId || users.length === 0 || nextMaxId === maxId) break;
-      maxId = nextMaxId;
+      if (shouldStopPaging(nextMaxId, users.length, maxId)) break;
+      maxId = nextMaxId as string;
 
       if (SCAN_PAUSE_EVERY_PAGES > 0 && page % SCAN_PAUSE_EVERY_PAGES === 0) {
         await delay(SCAN_PAUSE_MS);
@@ -280,25 +258,8 @@ export class Instagram {
   }
 }
 
-function getFriendshipUserId(user: FriendshipUser) {
-  return String(user.pk_id ?? user.id ?? user.pk ?? '');
-}
-
 function delay(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function randomBetween(min: number, max: number) {
-  return Math.floor(min + Math.random() * (max - min));
-}
-
-function isActionBlocked(status: number, data: UnfollowResponse): boolean {
-  if (data.feedback_required || data.spam) return true;
-  const message = data.message?.toLowerCase() ?? '';
-  if (message.includes('feedback_required') || message.includes('checkpoint_required') || message.includes('spam')) {
-    return true;
-  }
-  return status === 429;
 }
 
 export async function getSharedData(): Promise<InstagramSharedData | undefined> {

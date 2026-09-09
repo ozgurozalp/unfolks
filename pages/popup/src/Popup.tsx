@@ -1,19 +1,34 @@
 import { TYPES, useMountEffect, withErrorBoundary, withSuspense } from '@extension/shared';
 import type { Request } from '@extension/shared';
 import { Button, cn, Toaster } from '@extension/ui';
-import { Trans, useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import UserList from '@src/components/UserList';
 import ProfileCard from '@src/components/ProfileCard';
+import Onboarding from '@src/components/Onboarding';
 import AnnouncementDialog from '@src/components/AnnouncementDialog';
 import { useMainStore } from '@src/store';
-import { RefreshCw } from 'lucide-react';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import sendMessage from '@src/helpers/sendMessage';
+import { formatDistanceToNow } from 'date-fns';
+import { enUS, tr } from 'date-fns/locale';
+
+const DEFAULT_COOLDOWN_MS = 15 * 60 * 1000;
+
+function formatDuration(ms: number) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+}
 
 function Popup() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     unfollowers,
     isInstagram,
@@ -21,11 +36,23 @@ function Popup() {
     removeUnfollower,
     changeUserLoading,
     previousUnfollowerCount,
+    lastScannedAt,
+    blockedUntil,
+    setBlockedUntil,
     viewer,
     setViewer,
   } = useMainStore();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const isBlocked = typeof blockedUntil === 'number' && blockedUntil > now;
+
+  // Ticking clock to drive the cooldown countdown and the "last scan" label.
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const handleMessage = (request: Request) => {
     switch (request.type) {
@@ -78,6 +105,17 @@ function Popup() {
         toast.error(request.errorMessage || t('authError'), {
           id: 'auth-error',
           position: 'bottom-center',
+        });
+        break;
+      }
+      case TYPES.ACTION_BLOCKED: {
+        if (request.deletedId) changeUserLoading(request.deletedId, false);
+        const cooldownMs = typeof request.cooldownMs === 'number' ? request.cooldownMs : DEFAULT_COOLDOWN_MS;
+        setBlockedUntil(Date.now() + cooldownMs);
+        toast.error(request.errorMessage || t('actionBlocked'), {
+          id: 'action-blocked',
+          position: 'bottom-center',
+          duration: 6000,
         });
         break;
       }
@@ -184,37 +222,52 @@ function Popup() {
         )}
       >
         {firstTime ? (
-          <>
-            <div className="mb-4 space-y-4 text-center">
-              <p className="text-2xl">{t('firstTime')}</p>
-              {isInstagram ? (
-                <p className="text-balance text-lg">
-                  <Trans
-                    i18nKey="infoInInstagram"
-                    values={{ buttonText: idleButtonText }}
-                    components={{ bold: <strong key="bold" /> }}
-                  />
-                </p>
-              ) : (
-                <p className="text-balance text-2xl">{t('infoNotInInstagram')}</p>
-              )}
-            </div>
-            {renderRefreshButton('w-full')}
-          </>
+          <Onboarding
+            isInstagram={isInstagram}
+            idleButtonText={idleButtonText}
+            loading={loading}
+            action={renderRefreshButton('w-full')}
+          />
         ) : (
           <ProfileCard action={renderRefreshButton()} viewer={viewer} />
         )}
 
         {loading && (
-          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className={cn(
-                'h-full rounded-full bg-primary',
-                progressPercent !== null ? 'transition-[width] duration-300 ease-out' : 'w-1/3 animate-pulse',
-              )}
-              style={progressPercent !== null ? { width: `${progressPercent}%` } : undefined}
-            />
+          <div className="relative mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            {progressPercent !== null ? (
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+                style={{ width: `${progressPercent}%` }}
+              />
+            ) : (
+              <motion.div
+                className="absolute inset-y-0 w-2/5 rounded-full bg-primary"
+                initial={{ left: '-40%' }}
+                animate={{ left: '100%' }}
+                transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+              />
+            )}
           </div>
+        )}
+
+        {isBlocked && (
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <div className="min-w-0">
+              <p className="font-medium text-destructive">{t('blockedTitle')}</p>
+              <p className="text-muted-foreground">
+                {t('blockedCountdown', { time: formatDuration((blockedUntil as number) - now) })}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!firstTime && !loading && lastScannedAt && (
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            {t('lastScanned', {
+              time: formatDistanceToNow(lastScannedAt, { addSuffix: true, locale: i18n.language === 'tr' ? tr : enUS }),
+            })}
+          </p>
         )}
 
         <UserList users={unfollowers} />
