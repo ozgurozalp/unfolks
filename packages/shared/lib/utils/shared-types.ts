@@ -1,10 +1,5 @@
 export type ValueOf<T> = T[keyof T];
 
-export interface Options {
-  has_next_page?: boolean;
-  end_cursor?: string;
-}
-
 export interface User {
   id: string;
   username: string;

@@ -74,7 +74,7 @@ function Popup() {
       }
       case TYPES.ERROR: {
         if (request.deletedId) changeUserLoading(request.deletedId, false);
-        toast.error(t('notConnected'), {
+        toast.error(request.errorMessage || t('notConnected'), {
           id: 'connection-error',
           position: 'bottom-center',
         });

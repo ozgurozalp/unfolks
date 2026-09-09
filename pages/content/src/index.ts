@@ -34,6 +34,10 @@ export const initSharedData = async () => {
             }).catch(console.error);
           } else {
             captureException(error as Error);
+            sendMessageToBackground({
+              type: TYPES.ERROR,
+              errorMessage: error instanceof Error ? error.message : undefined,
+            }).catch(console.error);
           }
         }
       }
@@ -60,6 +64,7 @@ export const initSharedData = async () => {
               type: TYPES.ERROR,
               user: request.user,
               deletedId: request.user?.id,
+              errorMessage: error instanceof Error ? error.message : undefined,
             }).catch(console.error);
           }
         }
