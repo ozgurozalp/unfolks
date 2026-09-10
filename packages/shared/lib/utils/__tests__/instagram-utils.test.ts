@@ -5,6 +5,7 @@ import {
   getFriendshipUserId,
   isActionBlocked,
   mapFollowingToUsers,
+  parseOptionalTimestamp,
   shouldStopPaging,
   type FriendshipUser,
 } from '../instagram-utils';
@@ -84,6 +85,20 @@ describe('extractFollowBackIds', () => {
   });
 });
 
+describe('parseOptionalTimestamp', () => {
+  it('normalizes seconds, millis, and date strings', () => {
+    expect(parseOptionalTimestamp(1_700_000_000)).toBe(1_700_000_000_000);
+    expect(parseOptionalTimestamp(1_700_000_000_000)).toBe(1_700_000_000_000);
+    expect(parseOptionalTimestamp('2020-01-01T00:00:00.000Z')).toBe(Date.parse('2020-01-01T00:00:00.000Z'));
+  });
+
+  it('returns undefined for empty values', () => {
+    expect(parseOptionalTimestamp(undefined)).toBeUndefined();
+    expect(parseOptionalTimestamp('')).toBeUndefined();
+    expect(parseOptionalTimestamp('not-a-date')).toBeUndefined();
+  });
+});
+
 describe('mapFollowingToUsers', () => {
   const following: FriendshipUser[] = [
     { pk_id: '1', username: 'alice', full_name: 'Alice', is_verified: true, is_private: false },
@@ -91,6 +106,17 @@ describe('mapFollowingToUsers', () => {
     { username: 'no-id' }, // dropped: no id
     { pk_id: '4' } as FriendshipUser, // dropped: no username
   ];
+
+  it('keeps the following-list index and optional account dates', () => {
+    const dated: FriendshipUser[] = [
+      { pk_id: '1', username: 'a', created_at: 1_700_000_000 },
+      { username: 'skipped' },
+      { pk_id: '2', username: 'b', created_at_utc: '1700000000000' },
+    ];
+    const [first, second] = mapFollowingToUsers(dated, new Set());
+    expect(first).toMatchObject({ followIndex: 0, accountCreatedAt: 1_700_000_000_000 });
+    expect(second).toMatchObject({ followIndex: 2, accountCreatedAt: 1_700_000_000_000 });
+  });
 
   it('maps valid users and flags follow-back state', () => {
     const users = mapFollowingToUsers(following, new Set(['1']));
@@ -104,10 +130,11 @@ describe('mapFollowingToUsers', () => {
       isVerified: true,
       isPrivate: false,
       isFollowingMe: true,
+      followIndex: 0,
     });
 
     const bob = users.find(u => u.id === '2');
-    expect(bob).toMatchObject({ username: 'bob', full_name: '', isFollowingMe: false });
+    expect(bob).toMatchObject({ username: 'bob', full_name: '', isFollowingMe: false, followIndex: 1 });
   });
 });
 

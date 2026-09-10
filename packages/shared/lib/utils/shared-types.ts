@@ -9,6 +9,10 @@ export interface User {
   isFollowingMe: boolean;
   isPrivate: boolean;
   isVerified: boolean;
+  /** Position in Instagram's following list (0 = most recently followed). */
+  followIndex?: number;
+  /** Account creation time in ms, when Instagram sends it. */
+  accountCreatedAt?: number;
 }
 
 export type ProgressPhase = 'following' | 'followers';

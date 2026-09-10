@@ -15,6 +15,8 @@ export interface FriendshipUser {
   is_private?: boolean;
   is_verified?: boolean;
   friendship_status?: FriendshipStatus;
+  created_at?: number | string;
+  created_at_utc?: number | string;
 }
 
 export interface UnfollowResponse {
@@ -75,11 +77,33 @@ export function extractFollowBackIds(users: FriendshipUser[]): Set<string> | nul
   );
 }
 
+/** Parse Instagram timestamps that may be seconds, millis, or date strings. */
+export function parseOptionalTimestamp(value: unknown): number | undefined {
+  // 0 / negative are treated as absent — valid IG account timestamps are post-2010.
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value < 1e12 ? value * 1000 : value;
+  }
+
+  if (typeof value === 'string' && value.trim()) {
+    const asNumber = Number(value);
+    if (Number.isFinite(asNumber) && asNumber > 0) {
+      return asNumber < 1e12 ? asNumber * 1000 : asNumber;
+    }
+
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? undefined : parsed;
+  }
+
+  return undefined;
+}
+
 /** Map raw Instagram friendship users to app `User`s, dropping malformed entries. */
 export function mapFollowingToUsers(following: FriendshipUser[], followBackIds: Set<string>): User[] {
-  return following.flatMap(user => {
+  return following.flatMap((user, index) => {
     const id = getFriendshipUserId(user);
     if (!id || !user.username) return [];
+
+    const accountCreatedAt = parseOptionalTimestamp(user.created_at ?? user.created_at_utc);
 
     return [
       {
@@ -90,6 +114,8 @@ export function mapFollowingToUsers(following: FriendshipUser[], followBackIds: 
         isFollowingMe: followBackIds.has(id),
         isPrivate: Boolean(user.is_private),
         isVerified: Boolean(user.is_verified),
+        followIndex: index,
+        ...(accountCreatedAt === undefined ? {} : { accountCreatedAt }),
       },
     ];
   });

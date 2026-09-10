@@ -1,7 +1,8 @@
 import React, { useDeferredValue, useMemo, useState } from 'react';
 import Smiley from '@src/components/Smiley';
-import type { User } from '@extension/shared';
+import { resolveUserSortKey, sortUsers, type User } from '@extension/shared';
 import List, { ListItem } from '@src/components/List';
+import SortMenu from '@src/components/SortMenu';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -90,12 +91,13 @@ interface FilteredProps {
 }
 
 function WithoutMemoFiltered({ type, users }: FilteredProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [search, setSearch] = useState('');
   // Deferring the search term keeps the input responsive and avoids re-running
   // the list enter/exit animation on every keystroke.
   const deferredSearch = useDeferredValue(search);
   const onlyVerified = verifiedFilterByTab[type];
+  const sortKey = useMainStore(state => resolveUserSortKey(state.sortKey));
 
   const filteredUsers = useMemo(() => {
     let _users = users;
@@ -111,21 +113,29 @@ function WithoutMemoFiltered({ type, users }: FilteredProps) {
       );
     }
 
-    return _users;
-  }, [users, onlyVerified, deferredSearch]);
+    try {
+      return sortUsers(_users, sortKey, i18n.language);
+    } catch {
+      return _users;
+    }
+  }, [users, onlyVerified, deferredSearch, sortKey, i18n.language]);
 
   const noResults = deferredSearch.trim().length > 0 && filteredUsers.length === 0;
 
   return (
     <>
       <BulkUnfollowBar users={filteredUsers} />
-      <Input
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        style={{ boxShadow: 'none' }}
-        placeholder={t('searchAccountPlaceholder')}
-        className="mb-2"
-      />
+      <div className="mb-2 flex items-center gap-2">
+        <Input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ boxShadow: 'none' }}
+          placeholder={t('searchAccountPlaceholder')}
+          className="min-w-0 flex-1"
+          aria-label={t('searchAccountPlaceholder')}
+        />
+        <SortMenu />
+      </div>
       <List className="grid">
         <AnimatePresence mode="popLayout" initial={false}>
           {noResults && (

@@ -37,6 +37,18 @@ export function withPageConfig(config) {
         define: {
           'process.env.NODE_ENV': isDev ? `"development"` : `"production"`,
         },
+        resolve: {
+          // Base UI Select/Menu import CJS `use-sync-external-store/shim`, which
+          // does `require("react")`. In this Vite + React 19 bundle that
+          // resolves to null and crashes the popup with a blank screen.
+          dedupe: ['react', 'react-dom'],
+          alias: [
+            {
+              find: /^use-sync-external-store\/shim$/,
+              replacement: 'react',
+            },
+          ],
+        },
         envDir: '../..'
       },
       config,
