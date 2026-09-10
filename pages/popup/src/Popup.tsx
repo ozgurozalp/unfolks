@@ -200,15 +200,31 @@ function Popup() {
     : idleButtonText;
   const firstTime = unfollowers === null;
 
+  const visibleButtonText = isInstagram ? buttonText : t('goToInstagram');
+  const buttonWidthLocks = isInstagram
+    ? [idleButtonText, t('scanning'), t('scanningCount', { count: 88888 }), t('scanningPercent', { percent: 88 })]
+    : [visibleButtonText];
+
   const renderRefreshButton = (className?: string) => (
     <Button
-      className={cn('h-10 min-h-10 min-w-[11rem] justify-center whitespace-nowrap', className)}
+      className={cn('h-10 max-h-10 min-h-10 shrink-0 justify-center leading-none tabular-nums', className)}
       variant="outline"
       disabled={loading}
       onClick={getPeople}
     >
-      <RefreshCw className={cn('size-3', !isInstagram && 'hidden', loading && 'animate-spin')} />
-      {isInstagram ? buttonText : t('goToInstagram')}
+      {isInstagram && (
+        <span className="relative size-4 shrink-0 overflow-hidden">
+          <RefreshCw className={cn('absolute inset-0 size-4', loading && 'animate-spin')} aria-hidden />
+        </span>
+      )}
+      <span className="inline-grid justify-items-center">
+        {buttonWidthLocks.map((label, index) => (
+          <span key={index} className="invisible col-start-1 row-start-1 whitespace-nowrap" aria-hidden>
+            {label}
+          </span>
+        ))}
+        <span className="col-start-1 row-start-1 whitespace-nowrap">{visibleButtonText}</span>
+      </span>
     </Button>
   );
 
@@ -218,7 +234,7 @@ function Popup() {
         className={cn(
           'app grid h-full py-4',
           !isInstagram && 'items-center',
-          firstTime ? 'first-time' : 'not-fist-time',
+          firstTime ? 'first-time' : 'not-first-time',
         )}
       >
         {firstTime ? (
@@ -232,20 +248,35 @@ function Popup() {
           <ProfileCard action={renderRefreshButton()} viewer={viewer} />
         )}
 
-        {loading && (
-          <div className="relative mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            {progressPercent !== null ? (
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-                style={{ width: `${progressPercent}%` }}
-              />
+        {(!firstTime || loading) && (
+          <div className="mt-2 grid h-5 w-full place-items-center">
+            {loading ? (
+              <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                {progressPercent !== null ? (
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                ) : (
+                  <motion.div
+                    className="absolute inset-y-0 w-2/5 rounded-full bg-primary"
+                    initial={{ x: '-100%' }}
+                    animate={{ x: '250%' }}
+                    transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+                  />
+                )}
+              </div>
             ) : (
-              <motion.div
-                className="absolute inset-y-0 w-2/5 rounded-full bg-primary"
-                initial={{ left: '-40%' }}
-                animate={{ left: '100%' }}
-                transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
-              />
+              lastScannedAt && (
+                <p className="text-center text-xs leading-none text-muted-foreground">
+                  {t('lastScanned', {
+                    time: formatDistanceToNow(lastScannedAt, {
+                      addSuffix: true,
+                      locale: i18n.language === 'tr' ? tr : enUS,
+                    }),
+                  })}
+                </p>
+              )
             )}
           </div>
         )}
@@ -260,14 +291,6 @@ function Popup() {
               </p>
             </div>
           </div>
-        )}
-
-        {!firstTime && !loading && lastScannedAt && (
-          <p className="mt-2 text-center text-xs text-muted-foreground">
-            {t('lastScanned', {
-              time: formatDistanceToNow(lastScannedAt, { addSuffix: true, locale: i18n.language === 'tr' ? tr : enUS }),
-            })}
-          </p>
         )}
 
         <UserList users={unfollowers} />

@@ -9,7 +9,7 @@ interface ProfileCardProps {
 
 export default function ProfileCard({ viewer, action }: ProfileCardProps) {
   return (
-    <div className={'flex w-full justify-between gap-4 border-b pb-4'}>
+    <div className="flex w-full items-center justify-between gap-4 border-b pb-4">
       <div className="flex items-center gap-3">
         {viewer && (
           <>
@@ -31,7 +31,7 @@ export default function ProfileCard({ viewer, action }: ProfileCardProps) {
           </>
         )}
       </div>
-      {action}
+      {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
 }
