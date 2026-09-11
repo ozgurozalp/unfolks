@@ -3,10 +3,15 @@ import {
   computeUnfollowers,
   extractFollowBackIds,
   getFriendshipUserId,
+  inlineFollowBackIds,
   isActionBlocked,
+  isRetryableIgFail,
+  mapInBatches,
+  mapWithPool,
   mapFollowingToUsers,
   parseOptionalTimestamp,
   shouldStopPaging,
+  usersMissingFollowedBy,
   type FriendshipUser,
 } from '../instagram-utils';
 
@@ -41,6 +46,20 @@ describe('isActionBlocked', () => {
   it('returns false for normal responses', () => {
     expect(isActionBlocked(200, { status: 'ok' })).toBe(false);
     expect(isActionBlocked(400, { message: 'some other error' })).toBe(false);
+  });
+});
+
+describe('isRetryableIgFail', () => {
+  it('retries transient 200-fail bodies', () => {
+    expect(isRetryableIgFail({ status: 'fail', message: 'Please try again' })).toBe(true);
+    expect(isRetryableIgFail({ status: 'fail', message: 'rate limited' })).toBe(true);
+    expect(isRetryableIgFail({ status: 'fail' })).toBe(true);
+  });
+
+  it('does not retry auth or spam bodies', () => {
+    expect(isRetryableIgFail({ status: 'ok' })).toBe(false);
+    expect(isRetryableIgFail({ status: 'fail', message: 'checkpoint_required' })).toBe(false);
+    expect(isRetryableIgFail({ status: 'fail', message: 'Please login' })).toBe(false);
   });
 });
 
@@ -82,6 +101,70 @@ describe('extractFollowBackIds', () => {
       { pk_id: '2', username: 'b' },
     ];
     expect(extractFollowBackIds(users)).toBeNull();
+  });
+});
+
+describe('usersMissingFollowedBy', () => {
+  it('keeps users that have an id but no followed_by flag', () => {
+    const users: FriendshipUser[] = [
+      { pk_id: '1', username: 'a', friendship_status: { followed_by: true } },
+      { pk_id: '2', username: 'b' },
+      { username: 'no-id' },
+    ];
+    expect(usersMissingFollowedBy(users).map(getFriendshipUserId)).toEqual(['2']);
+  });
+});
+
+describe('inlineFollowBackIds', () => {
+  it('collects only explicit followed_by true, even when the list is mixed', () => {
+    const users: FriendshipUser[] = [
+      { pk_id: '1', username: 'a', friendship_status: { followed_by: true } },
+      { pk_id: '2', username: 'b' },
+      { pk_id: '3', username: 'c', friendship_status: { followed_by: false } },
+    ];
+    expect([...inlineFollowBackIds(users)]).toEqual(['1']);
+  });
+});
+
+describe('mapInBatches', () => {
+  it('maps in parallel batches and pauses between them, not after the last', async () => {
+    const seen: number[][] = [];
+    const pauses: number[] = [];
+
+    const result = await mapInBatches(
+      [1, 2, 3, 4, 5],
+      2,
+      async n => {
+        seen.push([n]);
+        return n * 10;
+      },
+      {
+        betweenBatches: async () => {
+          pauses.push(seen.length);
+        },
+      },
+    );
+
+    expect(result).toEqual([10, 20, 30, 40, 50]);
+    expect(pauses).toEqual([2, 4]);
+  });
+
+  it('returns an empty array for empty input', async () => {
+    expect(await mapInBatches([], 3, async n => n)).toEqual([]);
+  });
+});
+
+describe('mapWithPool', () => {
+  it('preserves input order even when later items finish first', async () => {
+    const result = await mapWithPool([1, 2, 3, 4, 5], 2, async n => {
+      await new Promise(resolve => setTimeout(resolve, (6 - n) * 5));
+      return n * 10;
+    });
+    expect(result).toEqual([10, 20, 30, 40, 50]);
+  });
+
+  it('returns an empty array for empty input', async () => {
+    expect(await mapWithPool([], 8, async n => n)).toEqual([]);
   });
 });
 

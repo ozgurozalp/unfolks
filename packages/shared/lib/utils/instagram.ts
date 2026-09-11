@@ -4,10 +4,15 @@ import {
   computeUnfollowers,
   extractFollowBackIds,
   getFriendshipUserId,
+  inlineFollowBackIds,
   isActionBlocked,
+  isRetryableIgFail,
+  mapWithPool,
   mapFollowingToUsers,
   randomBetween,
   shouldStopPaging,
+  usersMissingFollowedBy,
+  type FriendshipShowResponse,
   type FriendshipUser,
   type UnfollowResponse,
 } from './instagram-utils';
@@ -18,6 +23,14 @@ const SCAN_DELAY_MIN_MS = 700;
 const SCAN_DELAY_MAX_MS = 1500;
 const SCAN_PAUSE_EVERY_PAGES = 5;
 const SCAN_PAUSE_MS = 8000;
+/**
+ * show/{id} is the only web source of `followed_by`. A few in-flight
+ * requests with ~5/s start spacing keeps a 200-follow scan around 40s
+ * without a 10-wide burst.
+ */
+const SHOW_CONCURRENCY = 4;
+const SHOW_START_GAP_MIN_MS = 120;
+const SHOW_START_GAP_MAX_MS = 200;
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 2000;
 /** Local cooldown enforced after Instagram soft-blocks an action. */
@@ -51,6 +64,7 @@ export class ActionBlockedError extends Error {
 export class Instagram {
   sharedData: InstagramSharedData;
   followings: User[] = [];
+  private showNextStartAt = 0;
 
   constructor(sharedData: InstagramSharedData) {
     this.sharedData = sharedData;
@@ -92,10 +106,14 @@ export class Instagram {
 
   async getFollowing(onProgress?: ProgressCallback): Promise<void> {
     const counts = await this.getProfileCounts();
-    const total = (counts.following ?? 0) + (counts.followers ?? 0);
+    const followingEstimate = counts.following ?? 0;
 
     const following = await this.fetchFriendshipUsers('following', loaded =>
-      onProgress?.({ phase: 'following', current: loaded, total }),
+      onProgress?.({
+        phase: 'following',
+        current: loaded,
+        total: Math.max(followingEstimate, loaded) * 2,
+      }),
     );
 
     if (following.length === 0) {
@@ -106,6 +124,7 @@ export class Instagram {
       return;
     }
 
+    const total = following.length * 2;
     const followBackIds = await this.getFollowBackIds(following, following.length, total, onProgress);
 
     this.followings = mapFollowingToUsers(following, followBackIds);
@@ -154,16 +173,51 @@ export class Instagram {
     total: number,
     onProgress?: ProgressCallback,
   ): Promise<Set<string>> {
-    const inlineFollowBackIds = extractFollowBackIds(users);
-    if (inlineFollowBackIds) {
+    const completeInlineIds = extractFollowBackIds(users);
+    if (completeInlineIds) {
       onProgress?.({ phase: 'followers', current: total, total });
-      return inlineFollowBackIds;
+      return completeInlineIds;
     }
 
-    const followers = await this.fetchFriendshipUsers('followers', loaded =>
-      onProgress?.({ phase: 'followers', current: followingCount + loaded, total }),
+    const followBackIds = inlineFollowBackIds(users);
+    const needShow = usersMissingFollowedBy(users);
+    if (needShow.length === 0) {
+      onProgress?.({ phase: 'followers', current: total, total });
+      return followBackIds;
+    }
+
+    this.showNextStartAt = 0;
+
+    const shown = await mapWithPool(
+      needShow,
+      SHOW_CONCURRENCY,
+      async user => {
+        const id = getFriendshipUserId(user);
+        await this.waitForShowSlot();
+        const data = await this.fetchFriendshipShow(id);
+        return { id, followedBy: data.followed_by === true };
+      },
+      done => onProgress?.({ phase: 'followers', current: followingCount + done, total }),
     );
-    return new Set(followers.map(getFriendshipUserId).filter(Boolean));
+
+    for (const row of shown) {
+      if (row.followedBy) followBackIds.add(row.id);
+    }
+
+    return followBackIds;
+  }
+
+  private async waitForShowSlot() {
+    const gap = randomBetween(SHOW_START_GAP_MIN_MS, SHOW_START_GAP_MAX_MS);
+    const startAt = Math.max(Date.now(), this.showNextStartAt);
+    this.showNextStartAt = startAt + gap;
+    const wait = startAt - Date.now();
+    if (wait > 0) await delay(wait);
+  }
+
+  private async fetchFriendshipShow(userId: string): Promise<FriendshipShowResponse> {
+    const url = `https://www.instagram.com/api/v1/friendships/show/${encodeURIComponent(userId)}/`;
+    return this.igGetJson<FriendshipShowResponse>(url, 'friendship');
   }
 
   private async fetchFriendshipUsers(
@@ -181,7 +235,7 @@ export class Instagram {
       url.searchParams.set('search_surface', 'follow_list_page');
       if (maxId) url.searchParams.set('max_id', maxId);
 
-      const data = await this.igGet(url.toString(), list);
+      const data = await this.igGetJson<FriendshipsPage>(url.toString(), list);
       const users = data.users ?? [];
       all.push(...users);
       onPage?.(all.length);
@@ -201,7 +255,7 @@ export class Instagram {
     return all;
   }
 
-  private async igGet(url: string, list: 'following' | 'followers'): Promise<FriendshipsPage> {
+  private async igGetJson<T extends { status?: string; message?: string }>(url: string, label: string): Promise<T> {
     for (let attempt = 0; ; attempt += 1) {
       const response = await fetch(url, {
         headers: this.igHeaders(),
@@ -217,23 +271,27 @@ export class Instagram {
           throw new Error(`Request failed with status: ${response.status}`);
         }
         const retryAfter = Number(response.headers.get('retry-after'));
-        const wait = retryAfter > 0 ? retryAfter * 1000 : BACKOFF_BASE_MS * 2 ** attempt;
-        await delay(wait + randomBetween(0, 500));
+        const wait = retryAfter > 0 ? retryAfter * 1000 : Math.max(8000, BACKOFF_BASE_MS * 2 ** attempt);
+        await delay(wait + randomBetween(0, 1000));
         continue;
       }
 
       if (!response.ok) throw new Error(`Request failed with status: ${response.status}`);
 
-      const data = (await response.json()) as FriendshipsPage;
+      const data = (await response.json()) as T;
       if (data.status && data.status !== 'ok') {
-        throw new Error(data.message || `Failed to fetch ${list}`);
+        if (attempt < MAX_RETRIES && isRetryableIgFail(data)) {
+          await delay(Math.max(8000, BACKOFF_BASE_MS * 2 ** attempt) + randomBetween(0, 1000));
+          continue;
+        }
+        throw new Error(data.message || `Failed to fetch ${label}`);
       }
 
       return data;
     }
   }
 
-  private async getProfileCounts(): Promise<{ following: number | null; followers: number | null }> {
+  private async getProfileCounts(): Promise<{ following: number | null }> {
     try {
       const username = this.sharedData.config.viewer.username;
       const response = await fetch(
@@ -244,16 +302,15 @@ export class Instagram {
         },
       );
 
-      if (!response.ok) return { following: null, followers: null };
+      if (!response.ok) return { following: null };
 
       const json = await response.json();
       const user = json.data?.user;
       return {
         following: user?.edge_follow?.count ?? user?.following_count ?? null,
-        followers: user?.edge_followed_by?.count ?? user?.follower_count ?? null,
       };
     } catch {
-      return { following: null, followers: null };
+      return { following: null };
     }
   }
 }

@@ -27,6 +27,13 @@ export interface UnfollowResponse {
   friendship_status?: { following?: boolean };
 }
 
+export interface FriendshipShowResponse {
+  followed_by?: boolean;
+  following?: boolean;
+  status?: string;
+  message?: string;
+}
+
 /** Resolve the most reliable identifier Instagram returns for a user. */
 export function getFriendshipUserId(user: FriendshipUser): string {
   return String(user.pk_id ?? user.id ?? user.pk ?? '');
@@ -35,6 +42,27 @@ export function getFriendshipUserId(user: FriendshipUser): string {
 /** Integer in [min, max). */
 export function randomBetween(min: number, max: number): number {
   return Math.floor(min + Math.random() * (max - min));
+}
+
+/** HTTP 200 + status=fail bodies that are worth retrying (rate limit / transient). */
+export function isRetryableIgFail(data: { status?: string; message?: string }): boolean {
+  if (!data.status || data.status === 'ok') return false;
+  const message = data.message?.toLowerCase() ?? '';
+  if (
+    message.includes('login') ||
+    message.includes('checkpoint') ||
+    message.includes('feedback_required') ||
+    message.includes('spam')
+  ) {
+    return false;
+  }
+  return (
+    message.includes('try again') ||
+    message.includes('rate') ||
+    message.includes('wait') ||
+    message.includes('please') ||
+    !message
+  );
 }
 
 /** Detect Instagram "soft block" signals (feedback_required / checkpoint / spam / 429). */
@@ -61,8 +89,8 @@ export function shouldStopPaging(
 
 /**
  * When every user already carries a `followed_by` flag we can compute
- * follow-back ids without fetching the followers list. Returns null when the
- * data is incomplete and a followers fetch is required.
+ * follow-back ids without extra friendship lookups. Returns null when any
+ * user is missing the flag and `show/{id}` is required.
  */
 export function extractFollowBackIds(users: FriendshipUser[]): Set<string> | null {
   if (!users.every(user => typeof user.friendship_status?.followed_by === 'boolean')) {
@@ -75,6 +103,78 @@ export function extractFollowBackIds(users: FriendshipUser[]): Set<string> | nul
       .map(getFriendshipUserId)
       .filter(Boolean),
   );
+}
+
+/** Users that still need `GET /friendships/show/{id}/` to learn `followed_by`. */
+export function usersMissingFollowedBy(users: FriendshipUser[]): FriendshipUser[] {
+  return users.filter(
+    user => Boolean(getFriendshipUserId(user)) && typeof user.friendship_status?.followed_by !== 'boolean',
+  );
+}
+
+/** Follow-back ids already present on the following list (partial or complete). */
+export function inlineFollowBackIds(users: FriendshipUser[]): Set<string> {
+  return new Set(
+    users
+      .filter(user => user.friendship_status?.followed_by === true)
+      .map(getFriendshipUserId)
+      .filter(Boolean),
+  );
+}
+
+/** Map items in fixed-size parallel batches, optionally pausing between batches. */
+export async function mapInBatches<T, R>(
+  items: readonly T[],
+  batchSize: number,
+  mapper: (item: T) => Promise<R>,
+  options?: {
+    onProgress?: (done: number) => void;
+    betweenBatches?: () => Promise<void>;
+  },
+): Promise<R[]> {
+  const size = Math.max(1, batchSize);
+  const results: R[] = [];
+
+  for (let i = 0; i < items.length; i += size) {
+    const batch = items.slice(i, i + size);
+    results.push(...(await Promise.all(batch.map(mapper))));
+    options?.onProgress?.(results.length);
+    if (i + size < items.length) {
+      await options?.betweenBatches?.();
+    }
+  }
+
+  return results;
+}
+
+/** Run `concurrency` workers over `items`, preserving input order in the result. */
+export async function mapWithPool<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+  onProgress?: (done: number) => void,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  let done = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      for (;;) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= items.length) return;
+        results[index] = await mapper(items[index]);
+        done += 1;
+        onProgress?.(done);
+      }
+    }),
+  );
+
+  return results;
 }
 
 /** Parse Instagram timestamps that may be seconds, millis, or date strings. */

@@ -80,6 +80,7 @@ function Popup() {
         }
 
         setUnfollowers(newUsers);
+        if (request.viewer) setViewer(request.viewer);
         setLoading(false);
         setProgress(null);
         break;
@@ -156,7 +157,14 @@ function Popup() {
     port.onMessage.addListener(listener);
 
     if (useMainStore.getState().isInstagram) {
-      sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
+      const requestViewer = () => sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
+      requestViewer();
+      const retryIds = [400, 1200].map(ms => window.setTimeout(requestViewer, ms));
+      return () => {
+        retryIds.forEach(id => window.clearTimeout(id));
+        port.onMessage.removeListener(listener);
+        port.disconnect();
+      };
     }
 
     return () => {
@@ -212,18 +220,21 @@ function Popup() {
       disabled={loading}
       onClick={getPeople}
     >
-      {isInstagram && (
-        <span className="relative size-4 shrink-0 overflow-hidden">
-          <RefreshCw className={cn('absolute inset-0 size-4', loading && 'animate-spin')} aria-hidden />
-        </span>
-      )}
       <span className="inline-grid justify-items-center">
         {buttonWidthLocks.map((label, index) => (
-          <span key={index} className="invisible col-start-1 row-start-1 whitespace-nowrap" aria-hidden>
+          <span
+            key={index}
+            className="invisible col-start-1 row-start-1 inline-flex items-center gap-1.5 whitespace-nowrap"
+            aria-hidden
+          >
+            {isInstagram && <RefreshCw className="size-4 shrink-0" />}
             {label}
           </span>
         ))}
-        <span className="col-start-1 row-start-1 whitespace-nowrap">{visibleButtonText}</span>
+        <span className="col-start-1 row-start-1 inline-flex items-center gap-1.5 whitespace-nowrap">
+          {isInstagram && <RefreshCw className={cn('size-4 shrink-0', loading && 'animate-spin')} aria-hidden />}
+          {visibleButtonText}
+        </span>
       </span>
     </Button>
   );
