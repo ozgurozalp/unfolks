@@ -3,19 +3,26 @@ import { t } from '@extension/i18n';
 import {
   computeUnfollowers,
   extractFollowBackIds,
+  extractGraphqlTokens,
   getFriendshipUserId,
   inlineFollowBackIds,
   isActionBlocked,
+  isGraphqlUnfollowBlocked,
+  isGraphqlUnfollowSuccess,
   isRetryableIgFail,
+  jazoestFromDtsg,
   mapWithPool,
   mapFollowingToUsers,
   randomBetween,
   shouldAbortFollowersScan,
   shouldSkipFollowersScan,
   shouldStopPaging,
+  UNFOLLOW_DOC_ID,
+  UNFOLLOW_FRIENDLY_NAME,
   usersMissingFollowedBy,
   type FriendshipShowResponse,
   type FriendshipUser,
+  type GraphqlTokens,
   type UnfollowResponse,
 } from './instagram-utils';
 
@@ -75,6 +82,7 @@ export class Instagram {
   sharedData: InstagramSharedData;
   followings: User[] = [];
   private showNextStartAt = 0;
+  private graphqlTokens: GraphqlTokens | null | undefined;
 
   constructor(sharedData: InstagramSharedData) {
     this.sharedData = sharedData;
@@ -87,6 +95,10 @@ export class Instagram {
   }
 
   async unFollow(user: User) {
+    const graphql = await this.unFollowViaGraphql(user);
+    if (graphql === 'ok') return { status: true, deletedId: user.id };
+    if (graphql === 'blocked') throw new ActionBlockedError(t('actionBlocked'));
+
     const paths = [`/api/v1/web/friendships/${user.id}/unfollow/`, `/web/friendships/${user.id}/unfollow/`];
     let blocked = false;
 
@@ -174,6 +186,90 @@ export class Instagram {
       'x-requested-with': 'XMLHttpRequest',
       'x-instagram-ajax': '1',
     };
+  }
+
+  private readGraphqlTokens(): GraphqlTokens | null {
+    if (this.graphqlTokens !== undefined) return this.graphqlTokens;
+    if (typeof document === 'undefined') {
+      this.graphqlTokens = null;
+      return null;
+    }
+
+    const scripts = document.querySelectorAll('script');
+    const chunks: string[] = [];
+    for (let i = 0; i < scripts.length; i += 1) {
+      const text = scripts[i].textContent;
+      if (text && (text.includes('DTSG') || text.includes('LSD') || text.includes('asbd'))) {
+        chunks.push(text);
+      }
+    }
+
+    this.graphqlTokens = extractGraphqlTokens(chunks.join('\n'));
+    return this.graphqlTokens;
+  }
+
+  /**
+   * Instagram web unfollows through Relay (`usePolarisUnfollowMutation`).
+   * Session tokens come from the page; REST is used when GraphQL is unavailable.
+   */
+  private async unFollowViaGraphql(user: User): Promise<'ok' | 'blocked' | 'miss'> {
+    const tokens = this.readGraphqlTokens();
+    if (!tokens) return 'miss';
+
+    try {
+      const actorId = this.sharedData.config.viewer.fbid || this.sharedData.config.viewerId;
+      const headers: Record<string, string> = {
+        ...this.igHeaders(),
+        'content-type': 'application/x-www-form-urlencoded',
+        'x-fb-friendly-name': UNFOLLOW_FRIENDLY_NAME,
+        'x-fb-lsd': tokens.lsd,
+      };
+      if (tokens.asbdId) headers['x-asbd-id'] = tokens.asbdId;
+
+      const response = await fetch('https://www.instagram.com/api/graphql', {
+        headers,
+        referrerPolicy: 'strict-origin-when-cross-origin',
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'include',
+        body: new URLSearchParams({
+          av: actorId,
+          __d: 'www',
+          __user: '0',
+          __a: '1',
+          __comet_req: '7',
+          fb_dtsg: tokens.dtsg,
+          jazoest: jazoestFromDtsg(tokens.dtsg),
+          lsd: tokens.lsd,
+          fb_api_caller_class: 'RelayModern',
+          fb_api_req_friendly_name: UNFOLLOW_FRIENDLY_NAME,
+          server_timestamps: 'true',
+          variables: JSON.stringify({
+            target_user_id: user.id,
+            container_module: 'profile',
+          }),
+          doc_id: UNFOLLOW_DOC_ID,
+        }),
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        throw new AuthenticationError(t('authError'));
+      }
+
+      let payload: unknown = {};
+      try {
+        payload = await response.json();
+      } catch {
+        return 'miss';
+      }
+
+      if (isGraphqlUnfollowBlocked(response.status, payload)) return 'blocked';
+      if (isGraphqlUnfollowSuccess(payload)) return 'ok';
+      return 'miss';
+    } catch (error) {
+      if (error instanceof AuthenticationError) throw error;
+      return 'miss';
+    }
   }
 
   private async getFollowBackIds(

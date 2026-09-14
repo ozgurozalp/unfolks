@@ -65,6 +65,89 @@ export function isRetryableIgFail(data: { status?: string; message?: string }): 
   );
 }
 
+/** Instagram web's current unfollow mutation. Rotates; REST remains the fallback. */
+export const UNFOLLOW_DOC_ID = '27789106940691111';
+export const UNFOLLOW_FRIENDLY_NAME = 'usePolarisUnfollowMutation';
+
+export interface GraphqlTokens {
+  dtsg: string;
+  lsd: string;
+  asbdId?: string;
+}
+
+/** Facebook/Instagram `jazoest` is 2 + the sum of `fb_dtsg` character codes. */
+export function jazoestFromDtsg(dtsg: string): string {
+  let sum = 0;
+  for (let i = 0; i < dtsg.length; i += 1) sum += dtsg.charCodeAt(i);
+  return `2${sum}`;
+}
+
+export function extractGraphqlTokens(source: string): GraphqlTokens | null {
+  const dtsg =
+    source.match(/"DTSGInitialData",\[\],\{"token":"([^"]+)"\}/)?.[1] ??
+    source.match(/"DTSGInitData",\[\],\{"token":"([^"]+)"\}/)?.[1] ??
+    source.match(/"dtsg"\s*:\s*\{\s*"token"\s*:\s*"([^"]+)"/)?.[1];
+  const lsd = source.match(/"LSD",\[\],\{"token":"([^"]+)"\}/)?.[1] ?? source.match(/"lsd"\s*:\s*"([^"]+)"/)?.[1];
+  if (!dtsg || !lsd) return null;
+
+  const asbdId = source.match(/"asbd_id"\s*:\s*"(\d+)"/)?.[1];
+  return asbdId ? { dtsg, lsd, asbdId } : { dtsg, lsd };
+}
+
+export function graphqlErrorMessage(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const record = payload as { errors?: { message?: string }[]; message?: string };
+  if (Array.isArray(record.errors) && record.errors.length) {
+    const joined = record.errors
+      .map(error => error.message)
+      .filter(Boolean)
+      .join(' ');
+    if (joined) return joined;
+  }
+  return typeof record.message === 'string' ? record.message : undefined;
+}
+
+function friendshipFollowing(node: unknown): boolean | undefined {
+  if (!node || typeof node !== 'object') return undefined;
+  const record = node as Record<string, unknown>;
+  const status = record.friendship_status;
+  if (status && typeof status === 'object') {
+    const following = (status as { following?: boolean }).following;
+    if (typeof following === 'boolean') return following;
+  }
+  for (const value of Object.values(record)) {
+    const nested = friendshipFollowing(value);
+    if (typeof nested === 'boolean') return nested;
+  }
+  return undefined;
+}
+
+function hasOkStatus(node: unknown): boolean {
+  if (!node || typeof node !== 'object') return false;
+  const record = node as Record<string, unknown>;
+  if (record.status === 'ok') return true;
+  for (const value of Object.values(record)) {
+    if (hasOkStatus(value)) return true;
+  }
+  return false;
+}
+
+export function isGraphqlUnfollowSuccess(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object') return false;
+  const record = payload as { data?: unknown; errors?: unknown[]; status?: string };
+  if (Array.isArray(record.errors) && record.errors.length) return false;
+  if (!record.data || typeof record.data !== 'object') return false;
+
+  const following = friendshipFollowing(record.data);
+  if (following === false) return true;
+  if (following === true) return false;
+  return record.status === 'ok' || hasOkStatus(record.data);
+}
+
+export function isGraphqlUnfollowBlocked(status: number, payload: unknown): boolean {
+  return isActionBlocked(status, { message: graphqlErrorMessage(payload) });
+}
+
 /** Detect Instagram "soft block" signals (feedback_required / checkpoint / spam / 429). */
 export function isActionBlocked(status: number, data: UnfollowResponse): boolean {
   if (data.feedback_required || data.spam) return true;

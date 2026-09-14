@@ -20,7 +20,14 @@ const popupConfig = {
   },
 };
 
-const allowedSites = ['https://*.instagram.com/*', 'https://*.cdninstagram.com/*', 'https://*.fbcdn.net/*'];
+const instagramPages = ['https://instagram.com/*', 'https://*.instagram.com/*'];
+const instagramMedia = ['https://*.cdninstagram.com/*', 'https://*.fbcdn.net/*'];
+
+const icons = {
+  16: '/icon-16.png',
+  32: '/icon-32.png',
+  128: '/icon-128.png',
+};
 
 /**
  * After changing, please reload the extension at `chrome://extensions`
@@ -33,34 +40,20 @@ const manifest = deepmerge(
     name: '__MSG_extensionName__',
     version: packageJson.version,
     description: '__MSG_extensionDescription__',
-    host_permissions: allowedSites,
-    permissions: [],
+    host_permissions: [...instagramPages, ...instagramMedia],
+    permissions: ['storage'],
     background: {
       service_worker: 'background.iife.js',
       type: 'module',
     },
     action: {
-      default_icon: {
-        16: '/icon-16.png',
-        32: '/icon-32.png',
-        128: '/icon-128.png',
-      },
+      default_icon: icons,
     },
-    icons: {
-      16: '/icon-16.png',
-      32: '/icon-32.png',
-      128: '/icon-128.png',
-    },
+    icons,
     content_scripts: [
       {
-        matches: allowedSites,
+        matches: instagramPages,
         js: ['content/index.iife.js'],
-      },
-    ],
-    web_accessible_resources: [
-      {
-        resources: ['*.js', '*.css', '*.svg', '*.png'],
-        matches: ['*://*/*'],
       },
     ],
   },

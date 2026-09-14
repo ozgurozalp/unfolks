@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   computeUnfollowers,
   extractFollowBackIds,
+  extractGraphqlTokens,
   getFriendshipUserId,
   inlineFollowBackIds,
   isActionBlocked,
+  isGraphqlUnfollowBlocked,
+  isGraphqlUnfollowSuccess,
   isRetryableIgFail,
+  jazoestFromDtsg,
   mapInBatches,
   mapWithPool,
   mapFollowingToUsers,
@@ -26,6 +30,61 @@ describe('getFriendshipUserId', () => {
 
   it('returns empty string when no identifier is present', () => {
     expect(getFriendshipUserId({ username: 'a' })).toBe('');
+  });
+});
+
+describe('jazoestFromDtsg', () => {
+  it('prefixes 2 to the character-code sum', () => {
+    expect(jazoestFromDtsg('abc')).toBe('2294');
+  });
+});
+
+describe('extractGraphqlTokens', () => {
+  it('reads LSD, DTSG, and asbd_id from bootstrap scripts', () => {
+    const source = `
+      ["LSD",[],{"token":"lsd-token"}]
+      ["DTSGInitialData",[],{"token":"NAf_dtsg"}]
+      {"asbd_id":"359341"}
+    `;
+    expect(extractGraphqlTokens(source)).toEqual({
+      dtsg: 'NAf_dtsg',
+      lsd: 'lsd-token',
+      asbdId: '359341',
+    });
+  });
+
+  it('returns null when dtsg or lsd is missing', () => {
+    expect(extractGraphqlTokens('["LSD",[],{"token":"only-lsd"}]')).toBeNull();
+  });
+});
+
+describe('isGraphqlUnfollowSuccess', () => {
+  it('treats following:false as success', () => {
+    expect(
+      isGraphqlUnfollowSuccess({
+        data: { xdt_destroy_friendship: { friendship_status: { following: false } } },
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects Relay error payloads', () => {
+    expect(isGraphqlUnfollowSuccess({ data: null, errors: [{ message: 'Rate limited' }] })).toBe(false);
+    expect(
+      isGraphqlUnfollowSuccess({
+        data: { xdt_destroy_friendship: { friendship_status: { following: true } } },
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts a nested status:ok payload', () => {
+    expect(isGraphqlUnfollowSuccess({ data: { xdt_destroy_friendship: { status: 'ok' } } })).toBe(true);
+  });
+});
+
+describe('isGraphqlUnfollowBlocked', () => {
+  it('maps GraphQL checkpoint errors to a block', () => {
+    expect(isGraphqlUnfollowBlocked(200, { errors: [{ message: 'feedback_required' }] })).toBe(true);
+    expect(isGraphqlUnfollowBlocked(429, { data: {} })).toBe(true);
   });
 });
 
