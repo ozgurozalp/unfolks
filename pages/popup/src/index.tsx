@@ -7,6 +7,13 @@ import './i18n';
 import { sentryClient } from '@extension/shared';
 import { RateLimiterProvider } from '@src/hooks/useRateLimitedUnfollow';
 
+/** Chrome renders this page in the resizable side panel; Firefox in a fixed popup. */
+function detectSidePanel() {
+  if (typeof chrome.sidePanel !== 'undefined') {
+    document.body.classList.add('is-side-panel');
+  }
+}
+
 function detectMobile() {
   const isMobile =
     /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
@@ -22,6 +29,7 @@ async function init() {
   if (!appContainer) {
     throw new Error('Can not find #app-container');
   }
+  detectSidePanel();
   detectMobile();
   sentryClient.init();
   const root = createRoot(appContainer);

@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState, type ReactNode } from 'react';
 import Smiley from '@src/components/Smiley';
 import { resolveUserSortKey, sortUsers, type User } from '@extension/shared';
 import List, { ListItem } from '@src/components/List';
@@ -30,6 +30,7 @@ import { UserX, X } from 'lucide-react';
 
 interface Props {
   users: User[] | null;
+  lastScanNote?: ReactNode;
 }
 
 const verifiedFilterByTab: Record<Tab, boolean | undefined> = {
@@ -38,7 +39,7 @@ const verifiedFilterByTab: Record<Tab, boolean | undefined> = {
   verified: true,
 };
 
-export default function UserList({ users }: Props) {
+export default function UserList({ users, lastScanNote }: Props) {
   const tab = useMainStore(useShallow(state => state.selectedTab));
   const setSelectedTab = useMainStore(useShallow(state => state.setSelectedTab));
   const { t } = useTranslation();
@@ -47,7 +48,8 @@ export default function UserList({ users }: Props) {
 
   if (users.length === 0) {
     return (
-      <div className="grid h-44 w-full justify-items-center gap-2">
+      <div className="grid min-h-44 w-full justify-items-center gap-2">
+        {lastScanNote}
         <Smiley className="aspect-square size-28 max-w-full" />
         <p className="text-center text-lg font-semibold">
           <span className="text-2xl">{t('awesome')}</span>
@@ -60,17 +62,21 @@ export default function UserList({ users }: Props) {
   return (
     <div className="mt-3 grid w-full gap-y-3">
       <Tabs value={tab} onValueChange={value => setSelectedTab(value as Tab)} className="w-full">
-        <TabsList className="mx-auto grid w-fit grid-cols-[auto_auto_auto] gap-x-1">
-          <TabsTrigger className="h-full" value="all">
-            {t('allAccounts')}
-          </TabsTrigger>
-          <TabsTrigger className="h-full" value="verified">
-            {t('verifiedAccounts')}
-          </TabsTrigger>
-          <TabsTrigger className="h-full" value="normal">
-            {t('normalAccounts')}
-          </TabsTrigger>
-        </TabsList>
+        {/* Wide panels fit both on one row, so the note moves from above the tabs to their right. */}
+        <div className="flex flex-col items-center gap-2 wide:flex-row-reverse wide:justify-between">
+          {lastScanNote}
+          <TabsList className="grid w-fit grid-cols-[auto_auto_auto] gap-x-1">
+            <TabsTrigger className="h-full" value="all">
+              {t('allAccounts')}
+            </TabsTrigger>
+            <TabsTrigger className="h-full" value="verified">
+              {t('verifiedAccounts')}
+            </TabsTrigger>
+            <TabsTrigger className="h-full" value="normal">
+              {t('normalAccounts')}
+            </TabsTrigger>
+          </TabsList>
+        </div>
         <TabsContent value="all">
           <Filtered users={users} type="all" />
         </TabsContent>
@@ -183,13 +189,13 @@ const Filtered = React.memo(WithoutMemoFiltered, (prev: FilteredProps, next: Fil
 
 function BulkUnfollowBar({ users }: { users: User[] }) {
   const { t } = useTranslation();
-  const isInstagram = useMainStore(useShallow(state => state.isInstagram));
+  const hasInstagramTab = useMainStore(useShallow(state => state.hasInstagramTab));
   const blockedUntil = useMainStore(useShallow(state => state.blockedUntil));
   const { startBulk, cancelBulk, bulkState } = useRateLimitedUnfollow();
 
   const isBlocked = typeof blockedUntil === 'number' && blockedUntil > Date.now();
 
-  if (!isInstagram) return null;
+  if (!hasInstagramTab) return null;
 
   if (bulkState) {
     const percent = bulkState.total > 0 ? Math.round((bulkState.done / bulkState.total) * 100) : 0;

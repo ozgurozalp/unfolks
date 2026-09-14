@@ -1,4 +1,9 @@
-let popupPort: chrome.runtime.Port | null = null;
+// Chrome has no `default_popup`, so the toolbar icon has to be wired to the
+// side panel explicitly. Firefox keeps the popup and has no sidePanel API.
+chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
+
+// One side panel can be open per window, so several may be connected at once.
+const ports = new Set<chrome.runtime.Port>();
 
 // Messages that arrive before the popup's port is connected would otherwise be
 // dropped, causing e.g. the viewer's name/avatar to be missing on first open
@@ -8,7 +13,7 @@ let popupPort: chrome.runtime.Port | null = null;
 const bufferedByType = new Map<string, unknown>();
 
 chrome.runtime.onConnect.addListener(port => {
-  popupPort = port;
+  ports.add(port);
 
   if (bufferedByType.size) {
     for (const message of bufferedByType.values()) port.postMessage(message);
@@ -16,15 +21,15 @@ chrome.runtime.onConnect.addListener(port => {
   }
 
   port.onDisconnect.addListener(() => {
-    popupPort = null;
+    ports.delete(port);
   });
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   sendResponse({ reply: 'ok' });
 
-  if (popupPort) {
-    popupPort.postMessage(message);
+  if (ports.size) {
+    for (const port of ports) port.postMessage(message);
     return;
   }
 

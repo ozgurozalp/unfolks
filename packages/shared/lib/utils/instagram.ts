@@ -10,6 +10,8 @@ import {
   mapWithPool,
   mapFollowingToUsers,
   randomBetween,
+  shouldAbortFollowersScan,
+  shouldSkipFollowersScan,
   shouldStopPaging,
   usersMissingFollowedBy,
   type FriendshipShowResponse,
@@ -24,13 +26,16 @@ const SCAN_DELAY_MAX_MS = 1500;
 const SCAN_PAUSE_EVERY_PAGES = 5;
 const SCAN_PAUSE_MS = 8000;
 /**
- * show/{id} is the only web source of `followed_by`. A few in-flight
- * requests with ~5/s start spacing keeps a 200-follow scan around 40s
- * without a 10-wide burst.
+ * show/{id} is the only per-user web source of `followed_by`, used for whoever
+ * the followers walk could not confirm. A few in-flight requests with ~5/s start
+ * spacing keeps a 200-follow scan around 40s without a 10-wide burst.
  */
 const SHOW_CONCURRENCY = 4;
 const SHOW_START_GAP_MIN_MS = 120;
 const SHOW_START_GAP_MAX_MS = 200;
+/** Observed followers page size: the endpoint ignores `count` and sends ~23 users. */
+const FOLLOWERS_PAGE_SIZE = 23;
+const FOLLOWERS_ABORT_MARGIN = 5;
 const MAX_RETRIES = 3;
 const BACKOFF_BASE_MS = 2000;
 /** Local cooldown enforced after Instagram soft-blocks an action. */
@@ -43,6 +48,11 @@ interface FriendshipsPage {
   next_max_id?: string | null;
   status?: string;
   message?: string;
+}
+
+interface ProfileCounts {
+  following: number | null;
+  followers: number | null;
 }
 
 export class AuthenticationError extends Error {
@@ -124,8 +134,7 @@ export class Instagram {
       return;
     }
 
-    const total = following.length * 2;
-    const followBackIds = await this.getFollowBackIds(following, following.length, total, onProgress);
+    const followBackIds = await this.getFollowBackIds(following, counts.followers, onProgress);
 
     this.followings = mapFollowingToUsers(following, followBackIds);
   }
@@ -169,10 +178,11 @@ export class Instagram {
 
   private async getFollowBackIds(
     users: FriendshipUser[],
-    followingCount: number,
-    total: number,
+    followersCount: number | null,
     onProgress?: ProgressCallback,
   ): Promise<Set<string>> {
+    const followingCount = users.length;
+    const total = followingCount * 2;
     const completeInlineIds = extractFollowBackIds(users);
     if (completeInlineIds) {
       onProgress?.({ phase: 'followers', current: total, total });
@@ -180,12 +190,27 @@ export class Instagram {
     }
 
     const followBackIds = inlineFollowBackIds(users);
-    const needShow = usersMissingFollowedBy(users);
-    if (needShow.length === 0) {
+    const missing = usersMissingFollowedBy(users);
+    if (missing.length === 0) {
       onProgress?.({ phase: 'followers', current: total, total });
       return followBackIds;
     }
 
+    const skipFollowers = shouldSkipFollowersScan(followersCount, missing.length, FOLLOWERS_PAGE_SIZE);
+    const { confirmed, complete } = skipFollowers
+      ? { confirmed: new Set<string>(), complete: false }
+      : await this.collectFollowBackFromFollowers(new Set(missing.map(getFriendshipUserId)), found =>
+          onProgress?.({ phase: 'followers', current: followingCount + found, total }),
+        );
+
+    for (const id of confirmed) followBackIds.add(id);
+
+    if (complete) {
+      onProgress?.({ phase: 'followers', current: total, total });
+      return followBackIds;
+    }
+
+    const needShow = missing.filter(user => !confirmed.has(getFriendshipUserId(user)));
     this.showNextStartAt = 0;
 
     const shown = await mapWithPool(
@@ -197,7 +222,7 @@ export class Instagram {
         const data = await this.fetchFriendshipShow(id);
         return { id, followedBy: data.followed_by === true };
       },
-      done => onProgress?.({ phase: 'followers', current: followingCount + done, total }),
+      done => onProgress?.({ phase: 'followers', current: followingCount + confirmed.size + done, total }),
     );
 
     for (const row of shown) {
@@ -205,6 +230,50 @@ export class Instagram {
     }
 
     return followBackIds;
+  }
+
+  /**
+   * Walk the viewer's followers list and mark which `candidateIds` appear in it.
+   * When `complete` is false the walk stopped early, so a missing id means
+   * "unknown" and still needs a `show/{id}` lookup.
+   */
+  private async collectFollowBackFromFollowers(
+    candidateIds: Set<string>,
+    onConfirm?: (confirmed: number) => void,
+  ): Promise<{ confirmed: Set<string>; complete: boolean }> {
+    const confirmed = new Set<string>();
+    let maxId: string | undefined;
+    let pages = 0;
+
+    for (;;) {
+      let data: FriendshipsPage;
+      try {
+        data = await this.igGetJson<FriendshipsPage>(this.friendshipListUrl('followers', maxId), 'followers');
+      } catch (error) {
+        if (error instanceof AuthenticationError) throw error;
+        return { confirmed, complete: false };
+      }
+
+      const users = data.users ?? [];
+      for (const user of users) {
+        const id = getFriendshipUserId(user);
+        if (candidateIds.has(id)) confirmed.add(id);
+      }
+
+      pages += 1;
+      onConfirm?.(confirmed.size);
+
+      if (confirmed.size === candidateIds.size) return { confirmed, complete: true };
+
+      const nextMaxId = data.next_max_id;
+      if (shouldStopPaging(nextMaxId, users.length, maxId)) return { confirmed, complete: true };
+      if (shouldAbortFollowersScan(pages, confirmed.size, FOLLOWERS_ABORT_MARGIN)) {
+        return { confirmed, complete: false };
+      }
+
+      maxId = nextMaxId as string;
+      await this.pacePage(pages);
+    }
   }
 
   private async waitForShowSlot() {
@@ -220,22 +289,32 @@ export class Instagram {
     return this.igGetJson<FriendshipShowResponse>(url, 'friendship');
   }
 
+  private friendshipListUrl(list: 'following' | 'followers', maxId?: string): string {
+    const url = new URL(`https://www.instagram.com/api/v1/friendships/${this.sharedData.config.viewerId}/${list}/`);
+    url.searchParams.set('count', String(FRIENDSHIP_PAGE_SIZE));
+    url.searchParams.set('search_surface', 'follow_list_page');
+    if (maxId) url.searchParams.set('max_id', maxId);
+    return url.toString();
+  }
+
+  private async pacePage(page: number) {
+    if (SCAN_PAUSE_EVERY_PAGES > 0 && page % SCAN_PAUSE_EVERY_PAGES === 0) {
+      await delay(SCAN_PAUSE_MS);
+    } else {
+      await delay(randomBetween(SCAN_DELAY_MIN_MS, SCAN_DELAY_MAX_MS));
+    }
+  }
+
   private async fetchFriendshipUsers(
     list: 'following' | 'followers',
     onPage?: (loaded: number) => void,
   ): Promise<FriendshipUser[]> {
-    const userId = this.sharedData.config.viewerId;
     const all: FriendshipUser[] = [];
     let maxId: string | undefined;
     let page = 0;
 
     for (;;) {
-      const url = new URL(`https://www.instagram.com/api/v1/friendships/${userId}/${list}/`);
-      url.searchParams.set('count', String(FRIENDSHIP_PAGE_SIZE));
-      url.searchParams.set('search_surface', 'follow_list_page');
-      if (maxId) url.searchParams.set('max_id', maxId);
-
-      const data = await this.igGetJson<FriendshipsPage>(url.toString(), list);
+      const data = await this.igGetJson<FriendshipsPage>(this.friendshipListUrl(list, maxId), list);
       const users = data.users ?? [];
       all.push(...users);
       onPage?.(all.length);
@@ -245,11 +324,7 @@ export class Instagram {
       if (shouldStopPaging(nextMaxId, users.length, maxId)) break;
       maxId = nextMaxId as string;
 
-      if (SCAN_PAUSE_EVERY_PAGES > 0 && page % SCAN_PAUSE_EVERY_PAGES === 0) {
-        await delay(SCAN_PAUSE_MS);
-      } else {
-        await delay(randomBetween(SCAN_DELAY_MIN_MS, SCAN_DELAY_MAX_MS));
-      }
+      await this.pacePage(page);
     }
 
     return all;
@@ -291,26 +366,22 @@ export class Instagram {
     }
   }
 
-  private async getProfileCounts(): Promise<{ following: number | null }> {
+  private async getProfileCounts(): Promise<ProfileCounts> {
     try {
-      const username = this.sharedData.config.viewer.username;
-      const response = await fetch(
-        `https://www.instagram.com/api/v1/users/web_profile_info/?username=${encodeURIComponent(username)}`,
-        {
-          headers: this.igHeaders(),
-          credentials: 'include',
-        },
-      );
+      const response = await fetch(`https://www.instagram.com/api/v1/users/${this.sharedData.config.viewerId}/info/`, {
+        headers: this.igHeaders(),
+        credentials: 'include',
+      });
 
-      if (!response.ok) return { following: null };
+      if (!response.ok) return { following: null, followers: null };
 
-      const json = await response.json();
-      const user = json.data?.user;
+      const json = (await response.json()) as { user?: { following_count?: number; follower_count?: number } };
       return {
-        following: user?.edge_follow?.count ?? user?.following_count ?? null,
+        following: json.user?.following_count ?? null,
+        followers: json.user?.follower_count ?? null,
       };
     } catch {
-      return { following: null };
+      return { following: null, followers: null };
     }
   }
 }

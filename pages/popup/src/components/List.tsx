@@ -25,7 +25,7 @@ interface ListItemProps {
 }
 
 export function ListItem({ user, className }: ListItemProps) {
-  const { isInstagram, blockedUntil } = useMainStore();
+  const { hasInstagramTab, blockedUntil } = useMainStore();
   const { t } = useTranslation();
   const { unfollow } = useRateLimitedUnfollow();
   const isBlocked = typeof blockedUntil === 'number' && blockedUntil > Date.now();
@@ -53,7 +53,7 @@ export function ListItem({ user, className }: ListItemProps) {
           </div>
         </figcaption>
 
-        {isInstagram && (
+        {hasInstagramTab && (
           <Button
             variant="outline"
             size="sm"

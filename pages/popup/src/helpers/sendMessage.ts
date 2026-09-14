@@ -1,11 +1,18 @@
-import getCurrentTab from '@src/helpers/getCurrentTab';
+import findInstagramTabs from '@src/helpers/findInstagramTabs';
 
 export default async function sendMessage(message: any) {
-  const tab = await getCurrentTab();
+  const tabIds = await findInstagramTabs();
+  // Tabs opened before the extension was installed have no content script, so
+  // every candidate is tried before giving up.
+  let lastError: unknown = new Error('Instagram tab not found');
 
-  if (!tab.id) {
-    throw new Error('Tab not found');
+  for (const tabId of tabIds) {
+    try {
+      return await chrome.tabs.sendMessage(tabId, message);
+    } catch (error) {
+      lastError = error;
+    }
   }
 
-  return chrome.tabs.sendMessage(tab.id, message);
+  throw lastError;
 }

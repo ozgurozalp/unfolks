@@ -35,7 +35,12 @@ export default function AnnouncementDialog() {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.96 }}
           transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          className="fixed inset-x-3 bottom-3 z-50 origin-bottom overflow-hidden"
+          className={cn(
+            'fixed inset-x-3 bottom-3 z-50 mx-auto max-w-sm origin-bottom overflow-hidden',
+            // A wide side panel would stretch the banner across the whole width,
+            // so past the breakpoint it settles into a bottom-right card.
+            'sm:inset-x-auto sm:right-3 sm:w-96 sm:origin-bottom-right',
+          )}
         >
           <div className="relative rounded-2xl bg-white p-4 text-neutral-800 shadow-2xl">
             <button

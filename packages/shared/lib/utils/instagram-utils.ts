@@ -112,6 +112,29 @@ export function usersMissingFollowedBy(users: FriendshipUser[]): FriendshipUser[
   );
 }
 
+/**
+ * Followers pages carry ~23 users no matter what `count` asks for, so walking the
+ * whole list costs more requests than one `show/{id}` per candidate once the viewer
+ * has far more followers than followings.
+ */
+export function shouldSkipFollowersScan(
+  followersCount: number | null,
+  candidateCount: number,
+  pageSize: number,
+): boolean {
+  if (followersCount === null) return false;
+  return Math.ceil(followersCount / pageSize) > candidateCount;
+}
+
+/**
+ * Same trade-off measured as the walk runs, for when the follower count is unknown
+ * or wrong: keep paging only while pages confirm more than one follow-back each.
+ * `margin` bounds how many requests are wasted before giving up.
+ */
+export function shouldAbortFollowersScan(pagesUsed: number, confirmed: number, margin: number): boolean {
+  return pagesUsed > confirmed + margin;
+}
+
 /** Follow-back ids already present on the following list (partial or complete). */
 export function inlineFollowBackIds(users: FriendshipUser[]): Set<string> {
   return new Set(

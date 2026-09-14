@@ -10,6 +10,8 @@ import {
   mapWithPool,
   mapFollowingToUsers,
   parseOptionalTimestamp,
+  shouldAbortFollowersScan,
+  shouldSkipFollowersScan,
   shouldStopPaging,
   usersMissingFollowedBy,
   type FriendshipUser,
@@ -116,6 +118,29 @@ describe('usersMissingFollowedBy', () => {
 });
 
 describe('inlineFollowBackIds', () => {
+  it('walks followers when the list is cheaper than per-user lookups', () => {
+    expect(shouldSkipFollowersScan(243, 235, 23)).toBe(false);
+    expect(shouldSkipFollowersScan(5000, 500, 23)).toBe(false);
+  });
+
+  it('skips the followers walk when the viewer has far more followers than followings', () => {
+    expect(shouldSkipFollowersScan(100_000, 200, 23)).toBe(true);
+  });
+
+  it('walks followers when the follower count is unknown', () => {
+    expect(shouldSkipFollowersScan(null, 200, 23)).toBe(false);
+  });
+
+  it('keeps walking followers while pages confirm follow-backs', () => {
+    expect(shouldAbortFollowersScan(1, 20, 5)).toBe(false);
+    expect(shouldAbortFollowersScan(6, 1, 5)).toBe(false);
+  });
+
+  it('aborts the followers walk once pages outpace confirmations by the margin', () => {
+    expect(shouldAbortFollowersScan(6, 0, 5)).toBe(true);
+    expect(shouldAbortFollowersScan(12, 3, 5)).toBe(true);
+  });
+
   it('collects only explicit followed_by true, even when the list is mixed', () => {
     const users: FriendshipUser[] = [
       { pk_id: '1', username: 'a', friendship_status: { followed_by: true } },

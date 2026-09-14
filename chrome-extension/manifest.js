@@ -5,7 +5,20 @@ const packageJson = JSON.parse(fs.readFileSync('../package.json', 'utf8'));
 
 const isFirefox = process.env.__FIREFOX__ === 'true';
 
-const sidePanelConfig = {};
+/** Chrome opens the UI in the side panel, which stays open while browsing. */
+const sidePanelConfig = {
+  permissions: ['sidePanel'],
+  side_panel: {
+    default_path: 'popup/index.html',
+  },
+};
+
+/** Firefox has no side panel API, so it keeps the toolbar popup. */
+const popupConfig = {
+  action: {
+    default_popup: 'popup/index.html',
+  },
+};
 
 const allowedSites = ['https://*.instagram.com/*', 'https://*.cdninstagram.com/*', 'https://*.fbcdn.net/*'];
 
@@ -27,7 +40,6 @@ const manifest = deepmerge(
       type: 'module',
     },
     action: {
-      default_popup: 'popup/index.html',
       default_icon: {
         16: '/icon-16.png',
         32: '/icon-32.png',
@@ -52,7 +64,7 @@ const manifest = deepmerge(
       },
     ],
   },
-  !isFirefox && sidePanelConfig,
+  isFirefox ? popupConfig : sidePanelConfig,
 );
 
 export default manifest;

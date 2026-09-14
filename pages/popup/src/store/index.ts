@@ -42,7 +42,8 @@ function writeStoredSortKey(sortKey: UserSortKey) {
 
 export interface MainStore {
   unfollowers: User[] | null;
-  isInstagram: boolean;
+  /** Whether an Instagram tab is open somewhere, active or in the background. */
+  hasInstagramTab: boolean;
   previousUnfollowerCount: number | null;
   lastScannedAt: number | null;
   blockedUntil: number | null;
@@ -71,7 +72,7 @@ export const useMainStore = create<MainStore>()(
           writeStoredSortKey(next);
           set({ sortKey: next });
         },
-        isInstagram: false,
+        hasInstagramTab: false,
         unfollowers: null,
         previousUnfollowerCount: null,
         lastScannedAt: null,

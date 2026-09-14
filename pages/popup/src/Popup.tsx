@@ -31,7 +31,7 @@ function Popup() {
   const { t, i18n } = useTranslation();
   const {
     unfollowers,
-    isInstagram,
+    hasInstagramTab,
     setUnfollowers,
     removeUnfollower,
     changeUserLoading,
@@ -156,27 +156,28 @@ function Popup() {
     const listener = (request: Request) => handleMessageRef.current(request);
     port.onMessage.addListener(listener);
 
-    if (useMainStore.getState().isInstagram) {
-      const requestViewer = () => sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
-      requestViewer();
-      const retryIds = [400, 1200].map(ms => window.setTimeout(requestViewer, ms));
-      return () => {
-        retryIds.forEach(id => window.clearTimeout(id));
-        port.onMessage.removeListener(listener);
-        port.disconnect();
-      };
-    }
-
     return () => {
       port.onMessage.removeListener(listener);
       port.disconnect();
     };
   });
 
+  // The side panel stays open across tab switches, so viewer data is requested
+  // whenever an Instagram tab becomes available, not only on mount.
+  useEffect(() => {
+    if (!hasInstagramTab) return;
+
+    const requestViewer = () => sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
+    requestViewer();
+    const retryIds = [400, 1200].map(ms => window.setTimeout(requestViewer, ms));
+
+    return () => retryIds.forEach(id => window.clearTimeout(id));
+  }, [hasInstagramTab]);
+
   const getPeople = async () => {
     if (loading) return;
 
-    if (!isInstagram) {
+    if (!hasInstagramTab) {
       chrome.tabs.create({ url: 'https://www.instagram.com/', active: true }).catch(console.error);
       return;
     }
@@ -208,8 +209,19 @@ function Popup() {
     : idleButtonText;
   const firstTime = unfollowers === null;
 
-  const visibleButtonText = isInstagram ? buttonText : t('goToInstagram');
-  const buttonWidthLocks = isInstagram
+  const lastScanNote = lastScannedAt ? (
+    <p className="text-xs leading-none text-muted-foreground">
+      {t('lastScanned', {
+        time: formatDistanceToNow(lastScannedAt, {
+          addSuffix: true,
+          locale: i18n.language === 'tr' ? tr : enUS,
+        }),
+      })}
+    </p>
+  ) : null;
+
+  const visibleButtonText = hasInstagramTab ? buttonText : t('goToInstagram');
+  const buttonWidthLocks = hasInstagramTab
     ? [idleButtonText, t('scanning'), t('scanningCount', { count: 88888 }), t('scanningPercent', { percent: 88 })]
     : [visibleButtonText];
 
@@ -227,12 +239,12 @@ function Popup() {
             className="invisible col-start-1 row-start-1 inline-flex items-center gap-1.5 whitespace-nowrap"
             aria-hidden
           >
-            {isInstagram && <RefreshCw className="size-4 shrink-0" />}
+            {hasInstagramTab && <RefreshCw className="size-4 shrink-0" />}
             {label}
           </span>
         ))}
         <span className="col-start-1 row-start-1 inline-flex items-center gap-1.5 whitespace-nowrap">
-          {isInstagram && <RefreshCw className={cn('size-4 shrink-0', loading && 'animate-spin')} aria-hidden />}
+          {hasInstagramTab && <RefreshCw className={cn('size-4 shrink-0', loading && 'animate-spin')} aria-hidden />}
           {visibleButtonText}
         </span>
       </span>
@@ -244,13 +256,13 @@ function Popup() {
       <div
         className={cn(
           'app grid h-full py-4',
-          !isInstagram && 'items-center',
+          !hasInstagramTab && 'items-center',
           firstTime ? 'first-time' : 'not-first-time',
         )}
       >
         {firstTime ? (
           <Onboarding
-            isInstagram={isInstagram}
+            hasInstagramTab={hasInstagramTab}
             idleButtonText={idleButtonText}
             loading={loading}
             action={renderRefreshButton('w-full')}
@@ -259,36 +271,23 @@ function Popup() {
           <ProfileCard action={renderRefreshButton()} viewer={viewer} />
         )}
 
-        {(!firstTime || loading) && (
+        {loading && (
           <div className="mt-2 grid h-5 w-full place-items-center">
-            {loading ? (
-              <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                {progressPercent !== null ? (
-                  <div
-                    className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                ) : (
-                  <motion.div
-                    className="absolute inset-y-0 w-2/5 rounded-full bg-primary"
-                    initial={{ x: '-100%' }}
-                    animate={{ x: '250%' }}
-                    transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
-                  />
-                )}
-              </div>
-            ) : (
-              lastScannedAt && (
-                <p className="text-center text-xs leading-none text-muted-foreground">
-                  {t('lastScanned', {
-                    time: formatDistanceToNow(lastScannedAt, {
-                      addSuffix: true,
-                      locale: i18n.language === 'tr' ? tr : enUS,
-                    }),
-                  })}
-                </p>
-              )
-            )}
+            <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              {progressPercent !== null ? (
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              ) : (
+                <motion.div
+                  className="absolute inset-y-0 w-2/5 rounded-full bg-primary"
+                  initial={{ x: '-100%' }}
+                  animate={{ x: '250%' }}
+                  transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+                />
+              )}
+            </div>
           </div>
         )}
 
@@ -304,7 +303,7 @@ function Popup() {
           </div>
         )}
 
-        <UserList users={unfollowers} />
+        <UserList users={unfollowers} lastScanNote={lastScanNote} />
       </div>
       {unfollowers && unfollowers.length > 0 && <AnnouncementDialog />}
       <Toaster richColors />

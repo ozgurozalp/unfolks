@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 import { LogIn, MousePointerClick, UserMinus, UserRoundSearch } from 'lucide-react';
 
 interface OnboardingProps {
-  isInstagram: boolean;
+  hasInstagramTab: boolean;
   idleButtonText: string;
   loading: boolean;
   action: ReactNode;
@@ -12,7 +12,7 @@ interface OnboardingProps {
 
 const stepIcons = [LogIn, MousePointerClick, UserMinus];
 
-export default function Onboarding({ isInstagram, idleButtonText, loading, action }: OnboardingProps) {
+export default function Onboarding({ hasInstagramTab, idleButtonText, loading, action }: OnboardingProps) {
   const { t } = useTranslation();
   const steps = [t('onboardingStep1'), t('onboardingStep2'), t('onboardingStep3')];
 
@@ -40,7 +40,7 @@ export default function Onboarding({ isInstagram, idleButtonText, loading, actio
         <p className="text-balance text-sm text-muted-foreground">
           {loading ? (
             t('scanningInfo')
-          ) : isInstagram ? (
+          ) : hasInstagramTab ? (
             <Trans
               i18nKey="infoInInstagram"
               values={{ buttonText: idleButtonText }}
