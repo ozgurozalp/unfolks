@@ -15,6 +15,8 @@ export interface FriendshipUser {
   is_private?: boolean;
   is_verified?: boolean;
   friendship_status?: FriendshipStatus;
+  /** Accurate on the old `edge_follow` connection; still honored when the web list sends it. */
+  follows_viewer?: boolean;
   created_at?: number | string;
   created_at_utc?: number | string;
 }
@@ -30,13 +32,85 @@ export interface UnfollowResponse {
 export interface FriendshipShowResponse {
   followed_by?: boolean;
   following?: boolean;
+  friendship_status?: { followed_by?: boolean; following?: boolean };
   status?: string;
   message?: string;
 }
 
+/** Every id shape Instagram may use for the same account (`pk_id`, `id`, `pk`). */
+export function friendshipUserIds(user: FriendshipUser): string[] {
+  const ids: string[] = [];
+  for (const value of [user.pk_id, user.id, user.pk]) {
+    if (value === undefined || value === null || value === '') continue;
+    const id = String(value);
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 /** Resolve the most reliable identifier Instagram returns for a user. */
 export function getFriendshipUserId(user: FriendshipUser): string {
-  return String(user.pk_id ?? user.id ?? user.pk ?? '');
+  return friendshipUserIds(user)[0] ?? '';
+}
+
+/**
+ * Map every alias to the canonical id. Followers and following pages sometimes
+ * disagree on which field holds the Instagram user id.
+ */
+export function indexFollowBackAliases(users: readonly FriendshipUser[]): Map<string, string> {
+  const aliasToCanonical = new Map<string, string>();
+  for (const user of users) {
+    const canonical = getFriendshipUserId(user);
+    if (!canonical) continue;
+    for (const id of friendshipUserIds(user)) aliasToCanonical.set(id, canonical);
+  }
+  return aliasToCanonical;
+}
+
+/** Canonical following-list id when this follower matches any alias, otherwise undefined. */
+export function matchCanonicalFollowBack(
+  user: FriendshipUser,
+  aliasToCanonical: ReadonlyMap<string, string>,
+): string | undefined {
+  for (const id of friendshipUserIds(user)) {
+    const canonical = aliasToCanonical.get(id);
+    if (canonical) return canonical;
+  }
+  return undefined;
+}
+
+/** Keep the first copy of each account. Later pages sometimes repeat users. */
+export function dedupeFriendshipUsers(users: readonly FriendshipUser[]): FriendshipUser[] {
+  const seen = new Set<string>();
+  const unique: FriendshipUser[] = [];
+
+  for (const user of users) {
+    const ids = friendshipUserIds(user);
+    if (ids.length === 0) {
+      unique.push(user);
+      continue;
+    }
+    if (ids.some(id => seen.has(id))) continue;
+    for (const id of ids) seen.add(id);
+    unique.push(user);
+  }
+
+  return unique;
+}
+
+/**
+ * `followed_by` from `friendships/show`. The web API nests it under
+ * `friendship_status`; the private API leaves it at the top level. An explicit
+ * true wins if the two shapes disagree, so a real follower is not listed for unfollow.
+ */
+export function readFollowedBy(payload: unknown): boolean | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const record = payload as { followed_by?: unknown; friendship_status?: { followed_by?: unknown } };
+  const values = [record.followed_by, record.friendship_status?.followed_by].filter(
+    (value): value is boolean => typeof value === 'boolean',
+  );
+  if (values.length === 0) return undefined;
+  return values.some(Boolean);
 }
 
 /** Integer in [min, max). */
@@ -170,10 +244,15 @@ export function shouldStopPaging(
   return !nextMaxId || pageLength === 0 || nextMaxId === prevMaxId;
 }
 
+/** Cursor repeated. The walk is incomplete — a missing id is unknown, not a non-follower. */
+export function isPagingStuck(nextMaxId: string | null | undefined, pageLength: number, prevMaxId?: string): boolean {
+  return Boolean(nextMaxId) && pageLength > 0 && nextMaxId === prevMaxId;
+}
+
 /**
- * When every user already carries a `followed_by` flag we can compute
- * follow-back ids without extra friendship lookups. Returns null when any
- * user is missing the flag and `show/{id}` is required.
+ * Inline `followed_by` when every row has the flag.
+ * The following list often reports `followed_by: false` for people who do follow
+ * you, so this must not be used to skip the followers walk.
  */
 export function extractFollowBackIds(users: FriendshipUser[]): Set<string> | null {
   if (!users.every(user => typeof user.friendship_status?.followed_by === 'boolean')) {
@@ -193,6 +272,20 @@ export function usersMissingFollowedBy(users: FriendshipUser[]): FriendshipUser[
   return users.filter(
     user => Boolean(getFriendshipUserId(user)) && typeof user.friendship_status?.followed_by !== 'boolean',
   );
+}
+
+/** List-level proof that this account follows the viewer. A false flag is not proof. */
+export function hasListFollowBack(user: FriendshipUser): boolean {
+  return user.follows_viewer === true || user.friendship_status?.followed_by === true;
+}
+
+/**
+ * Accounts that still need the followers list or `show/{id}`.
+ * `followed_by: false` on the following list is ignored — Instagram returns that
+ * for people who follow you back.
+ */
+export function usersUnconfirmedFollowBack(users: FriendshipUser[]): FriendshipUser[] {
+  return users.filter(user => Boolean(getFriendshipUserId(user)) && !hasListFollowBack(user));
 }
 
 /**
@@ -220,12 +313,7 @@ export function shouldAbortFollowersScan(pagesUsed: number, confirmed: number, m
 
 /** Follow-back ids already present on the following list (partial or complete). */
 export function inlineFollowBackIds(users: FriendshipUser[]): Set<string> {
-  return new Set(
-    users
-      .filter(user => user.friendship_status?.followed_by === true)
-      .map(getFriendshipUserId)
-      .filter(Boolean),
-  );
+  return new Set(users.filter(hasListFollowBack).map(getFriendshipUserId).filter(Boolean));
 }
 
 /** Map items in fixed-size parallel batches, optionally pausing between batches. */

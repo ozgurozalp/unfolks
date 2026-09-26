@@ -2,24 +2,28 @@ import type { InstagramSharedData, ScanProgress, User } from '.';
 import { t } from '@extension/i18n';
 import {
   computeUnfollowers,
-  extractFollowBackIds,
+  dedupeFriendshipUsers,
   extractGraphqlTokens,
   getFriendshipUserId,
+  indexFollowBackAliases,
   inlineFollowBackIds,
   isActionBlocked,
   isGraphqlUnfollowBlocked,
   isGraphqlUnfollowSuccess,
+  isPagingStuck,
   isRetryableIgFail,
   jazoestFromDtsg,
   mapWithPool,
   mapFollowingToUsers,
+  matchCanonicalFollowBack,
   randomBetween,
+  readFollowedBy,
   shouldAbortFollowersScan,
   shouldSkipFollowersScan,
   shouldStopPaging,
   UNFOLLOW_DOC_ID,
   UNFOLLOW_FRIENDLY_NAME,
-  usersMissingFollowedBy,
+  usersUnconfirmedFollowBack,
   type FriendshipShowResponse,
   type FriendshipUser,
   type GraphqlTokens,
@@ -33,9 +37,9 @@ const SCAN_DELAY_MAX_MS = 1500;
 const SCAN_PAUSE_EVERY_PAGES = 5;
 const SCAN_PAUSE_MS = 8000;
 /**
- * show/{id} is the only per-user web source of `followed_by`, used for whoever
- * the followers walk could not confirm. A few in-flight requests with ~5/s start
- * spacing keeps a 200-follow scan around 40s without a 10-wide burst.
+ * show/{id} fills in whoever the followers walk could not confirm. A few
+ * in-flight requests with ~5/s start spacing keeps a 200-follow scan around 40s
+ * without a 10-wide burst.
  */
 const SHOW_CONCURRENCY = 4;
 const SHOW_START_GAP_MIN_MS = 120;
@@ -130,12 +134,15 @@ export class Instagram {
     const counts = await this.getProfileCounts();
     const followingEstimate = counts.following ?? 0;
 
-    const following = await this.fetchFriendshipUsers('following', loaded =>
-      onProgress?.({
-        phase: 'following',
-        current: loaded,
-        total: Math.max(followingEstimate, loaded) * 2,
-      }),
+    const following = await this.fetchFriendshipUsers(
+      'following',
+      loaded =>
+        onProgress?.({
+          phase: 'following',
+          current: loaded,
+          total: Math.max(followingEstimate, loaded) * 2,
+        }),
+      'date_followed_latest',
     );
 
     if (following.length === 0) {
@@ -279,23 +286,19 @@ export class Instagram {
   ): Promise<Set<string>> {
     const followingCount = users.length;
     const total = followingCount * 2;
-    const completeInlineIds = extractFollowBackIds(users);
-    if (completeInlineIds) {
-      onProgress?.({ phase: 'followers', current: total, total });
-      return completeInlineIds;
-    }
-
     const followBackIds = inlineFollowBackIds(users);
-    const missing = usersMissingFollowedBy(users);
+    const missing = usersUnconfirmedFollowBack(users);
     if (missing.length === 0) {
       onProgress?.({ phase: 'followers', current: total, total });
       return followBackIds;
     }
 
+    const aliasToCanonical = indexFollowBackAliases(missing);
+    const canonicalCount = new Set(aliasToCanonical.values()).size;
     const skipFollowers = shouldSkipFollowersScan(followersCount, missing.length, FOLLOWERS_PAGE_SIZE);
     const { confirmed, complete } = skipFollowers
       ? { confirmed: new Set<string>(), complete: false }
-      : await this.collectFollowBackFromFollowers(new Set(missing.map(getFriendshipUserId)), found =>
+      : await this.collectFollowBackFromFollowers(aliasToCanonical, canonicalCount, found =>
           onProgress?.({ phase: 'followers', current: followingCount + found, total }),
         );
 
@@ -316,25 +319,27 @@ export class Instagram {
         const id = getFriendshipUserId(user);
         await this.waitForShowSlot();
         const data = await this.fetchFriendshipShow(id);
-        return { id, followedBy: data.followed_by === true };
+        return { id, followedBy: readFollowedBy(data) };
       },
       done => onProgress?.({ phase: 'followers', current: followingCount + confirmed.size + done, total }),
     );
 
     for (const row of shown) {
-      if (row.followedBy) followBackIds.add(row.id);
+      // Unknown is kept off the unfollow list. A missing flag is not proof they don't follow.
+      if (row.followedBy !== false) followBackIds.add(row.id);
     }
 
     return followBackIds;
   }
 
   /**
-   * Walk the viewer's followers list and mark which `candidateIds` appear in it.
-   * When `complete` is false the walk stopped early, so a missing id means
-   * "unknown" and still needs a `show/{id}` lookup.
+   * Walk the viewer's followers list and mark which following accounts appear in it.
+   * When `complete` is false the walk stopped early, so a missing id is unknown
+   * and still needs a `show/{id}` lookup.
    */
   private async collectFollowBackFromFollowers(
-    candidateIds: Set<string>,
+    aliasToCanonical: ReadonlyMap<string, string>,
+    canonicalCount: number,
     onConfirm?: (confirmed: number) => void,
   ): Promise<{ confirmed: Set<string>; complete: boolean }> {
     const confirmed = new Set<string>();
@@ -352,16 +357,17 @@ export class Instagram {
 
       const users = data.users ?? [];
       for (const user of users) {
-        const id = getFriendshipUserId(user);
-        if (candidateIds.has(id)) confirmed.add(id);
+        const canonical = matchCanonicalFollowBack(user, aliasToCanonical);
+        if (canonical) confirmed.add(canonical);
       }
 
       pages += 1;
       onConfirm?.(confirmed.size);
 
-      if (confirmed.size === candidateIds.size) return { confirmed, complete: true };
+      if (canonicalCount > 0 && confirmed.size === canonicalCount) return { confirmed, complete: true };
 
       const nextMaxId = data.next_max_id;
+      if (isPagingStuck(nextMaxId, users.length, maxId)) return { confirmed, complete: false };
       if (shouldStopPaging(nextMaxId, users.length, maxId)) return { confirmed, complete: true };
       if (shouldAbortFollowersScan(pages, confirmed.size, FOLLOWERS_ABORT_MARGIN)) {
         return { confirmed, complete: false };
@@ -385,10 +391,11 @@ export class Instagram {
     return this.igGetJson<FriendshipShowResponse>(url, 'friendship');
   }
 
-  private friendshipListUrl(list: 'following' | 'followers', maxId?: string): string {
+  private friendshipListUrl(list: 'following' | 'followers', maxId?: string, order?: string): string {
     const url = new URL(`https://www.instagram.com/api/v1/friendships/${this.sharedData.config.viewerId}/${list}/`);
     url.searchParams.set('count', String(FRIENDSHIP_PAGE_SIZE));
     url.searchParams.set('search_surface', 'follow_list_page');
+    if (order) url.searchParams.set('order', order);
     if (maxId) url.searchParams.set('max_id', maxId);
     return url.toString();
   }
@@ -404,16 +411,33 @@ export class Instagram {
   private async fetchFriendshipUsers(
     list: 'following' | 'followers',
     onPage?: (loaded: number) => void,
+    order?: string,
   ): Promise<FriendshipUser[]> {
     const all: FriendshipUser[] = [];
     let maxId: string | undefined;
     let page = 0;
+    let activeOrder = order;
 
     for (;;) {
-      const data = await this.igGetJson<FriendshipsPage>(this.friendshipListUrl(list, maxId), list);
+      let data: FriendshipsPage;
+      try {
+        data = await this.igGetJson<FriendshipsPage>(this.friendshipListUrl(list, maxId, activeOrder), list);
+      } catch (error) {
+        // `order` is a mobile-list param. If the web endpoint rejects it, reload without it.
+        if (activeOrder && all.length === 0 && !(error instanceof AuthenticationError)) {
+          activeOrder = undefined;
+          continue;
+        }
+        throw error;
+      }
+
       const users = data.users ?? [];
+      if (activeOrder && all.length === 0 && users.length === 0) {
+        activeOrder = undefined;
+        continue;
+      }
       all.push(...users);
-      onPage?.(all.length);
+      onPage?.(dedupeFriendshipUsers(all).length);
       page += 1;
 
       const nextMaxId = data.next_max_id;
@@ -423,7 +447,7 @@ export class Instagram {
       await this.pacePage(page);
     }
 
-    return all;
+    return dedupeFriendshipUsers(all);
   }
 
   private async igGetJson<T extends { status?: string; message?: string }>(url: string, label: string): Promise<T> {

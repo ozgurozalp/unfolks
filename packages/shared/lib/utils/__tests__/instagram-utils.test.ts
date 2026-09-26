@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeUnfollowers,
+  dedupeFriendshipUsers,
   extractFollowBackIds,
   extractGraphqlTokens,
   getFriendshipUserId,
+  hasListFollowBack,
+  indexFollowBackAliases,
   inlineFollowBackIds,
   isActionBlocked,
+  isPagingStuck,
   isGraphqlUnfollowBlocked,
   isGraphqlUnfollowSuccess,
   isRetryableIgFail,
@@ -13,11 +17,14 @@ import {
   mapInBatches,
   mapWithPool,
   mapFollowingToUsers,
+  matchCanonicalFollowBack,
   parseOptionalTimestamp,
+  readFollowedBy,
   shouldAbortFollowersScan,
   shouldSkipFollowersScan,
   shouldStopPaging,
   usersMissingFollowedBy,
+  usersUnconfirmedFollowBack,
   type FriendshipUser,
 } from '../instagram-utils';
 
@@ -141,6 +148,58 @@ describe('shouldStopPaging', () => {
   it('continues when there is a new cursor and users', () => {
     expect(shouldStopPaging('next', 10, 'abc')).toBe(false);
     expect(shouldStopPaging('next', 10, undefined)).toBe(false);
+  });
+});
+
+describe('isPagingStuck', () => {
+  it('is stuck only when a non-empty page repeats the cursor', () => {
+    expect(isPagingStuck('abc', 10, 'abc')).toBe(true);
+    expect(isPagingStuck('next', 10, 'abc')).toBe(false);
+    expect(isPagingStuck(null, 10, 'abc')).toBe(false);
+    expect(isPagingStuck('abc', 0, 'abc')).toBe(false);
+  });
+});
+
+describe('readFollowedBy', () => {
+  it('reads the top-level flag and the nested web flag', () => {
+    expect(readFollowedBy({ followed_by: true })).toBe(true);
+    expect(readFollowedBy({ status: 'ok', friendship_status: { followed_by: false } })).toBe(false);
+  });
+
+  it('prefers an explicit true when the two shapes disagree', () => {
+    expect(readFollowedBy({ followed_by: false, friendship_status: { followed_by: true } })).toBe(true);
+  });
+
+  it('returns undefined when the flag is missing', () => {
+    expect(readFollowedBy({ status: 'ok' })).toBeUndefined();
+    expect(readFollowedBy(null)).toBeUndefined();
+  });
+});
+
+describe('follow-back identity', () => {
+  it('matches a follower whose pk is the following list id, not pk_id', () => {
+    const following: FriendshipUser[] = [{ pk_id: '111', id: '999', pk: 222, username: 'ada' }];
+    const aliases = indexFollowBackAliases(following);
+    expect(matchCanonicalFollowBack({ pk: 222, username: 'ada' }, aliases)).toBe('111');
+  });
+
+  it('drops repeated accounts and keeps the first position', () => {
+    const users = dedupeFriendshipUsers([
+      { pk_id: '1', username: 'newest' },
+      { pk: 1, username: 'dup' },
+      { pk_id: '2', username: 'older' },
+    ]);
+    expect(users.map(user => user.username)).toEqual(['newest', 'older']);
+  });
+
+  it('does not treat list-level followed_by false as confirmed', () => {
+    const users: FriendshipUser[] = [
+      { pk_id: '1', username: 'a', friendship_status: { followed_by: true } },
+      { pk_id: '2', username: 'b', follows_viewer: true },
+      { pk_id: '3', username: 'c', friendship_status: { followed_by: false } },
+    ];
+    expect(users.filter(hasListFollowBack).map(getFriendshipUserId)).toEqual(['1', '2']);
+    expect(usersUnconfirmedFollowBack(users).map(getFriendshipUserId)).toEqual(['3']);
   });
 });
 
