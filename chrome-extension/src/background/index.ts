@@ -10,7 +10,8 @@ chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(conso
 const ports = new Set<chrome.runtime.Port>();
 
 // Latest message per type, flushed when a port connects. PROGRESS is excluded
-// so a scan running while the popup is closed can't flood the buffer.
+// because the scan lives in the Instagram tab and the panel asks for the
+// current state when it reopens. Buffering every tick would go stale.
 // chrome.storage.session survives worker restarts; the in-memory copy and
 // write queue keep connect/message races from dropping or duplicating items.
 let memoryBuffer: Record<string, unknown> = {};

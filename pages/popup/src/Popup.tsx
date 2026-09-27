@@ -44,6 +44,7 @@ function Popup() {
   } = useMainStore();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
+  const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const isBlocked = typeof blockedUntil === 'number' && blockedUntil > now;
@@ -83,11 +84,18 @@ function Popup() {
         if (request.viewer) setViewer(request.viewer);
         setLoading(false);
         setProgress(null);
+        setRetryUntil(null);
         break;
       }
       case TYPES.PROGRESS: {
+        setLoading(true);
         if (typeof request.current === 'number' && typeof request.total === 'number') {
           setProgress({ current: request.current, total: request.total });
+        }
+        if (typeof request.retryInMs === 'number' && request.retryInMs > 0) {
+          setRetryUntil(Date.now() + request.retryInMs);
+        } else {
+          setRetryUntil(null);
         }
         break;
       }
@@ -103,6 +111,7 @@ function Popup() {
         if (request.deletedId) changeUserLoading(request.deletedId, false);
         setLoading(false);
         setProgress(null);
+        setRetryUntil(null);
         toast.error(request.errorMessage || t('authError'), {
           id: 'auth-error',
           position: 'bottom-center',
@@ -124,6 +133,7 @@ function Popup() {
         if (request.deletedId) changeUserLoading(request.deletedId, false);
         setLoading(false);
         setProgress(null);
+        setRetryUntil(null);
         toast.error(request.errorMessage || t('notConnected'), {
           id: 'connection-error',
           position: 'bottom-center',
@@ -167,9 +177,12 @@ function Popup() {
   useEffect(() => {
     if (!hasInstagramTab) return;
 
-    const requestViewer = () => sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
-    requestViewer();
-    const retryIds = [400, 1200].map(ms => window.setTimeout(requestViewer, ms));
+    const syncInstagram = () => {
+      sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
+      sendMessage({ type: TYPES.GET_SCAN_STATE }).catch(console.error);
+    };
+    syncInstagram();
+    const retryIds = [400, 1200].map(ms => window.setTimeout(syncInstagram, ms));
 
     return () => retryIds.forEach(id => window.clearTimeout(id));
   }, [hasInstagramTab]);
@@ -185,6 +198,7 @@ function Popup() {
     try {
       setLoading(true);
       setProgress(null);
+      setRetryUntil(null);
       await sendMessage({ type: TYPES.GET_PEOPLE });
     } catch {
       toast.error(t('notConnected'), {
@@ -193,19 +207,23 @@ function Popup() {
       });
       setLoading(false);
       setProgress(null);
+      setRetryUntil(null);
     }
   };
 
   const progressPercent =
     progress && progress.total > 0 ? Math.min(99, Math.round((progress.current / progress.total) * 100)) : null;
+  const retrySeconds = retryUntil && retryUntil > now ? Math.ceil((retryUntil - now) / 1000) : null;
 
   const idleButtonText = unfollowers ? t('refresh') : t('showUnfollowers');
   const buttonText = loading
-    ? progressPercent !== null
-      ? t('scanningPercent', { percent: progressPercent })
-      : progress && progress.current > 0
-        ? t('scanningCount', { count: progress.current })
-        : t('scanning')
+    ? retrySeconds
+      ? t('scanningWaiting', { seconds: retrySeconds })
+      : progressPercent !== null
+        ? t('scanningPercent', { percent: progressPercent })
+        : progress && progress.current > 0
+          ? t('scanningCount', { count: progress.current })
+          : t('scanning')
     : idleButtonText;
   const firstTime = unfollowers === null;
 
@@ -222,7 +240,13 @@ function Popup() {
 
   const visibleButtonText = hasInstagramTab ? buttonText : t('goToInstagram');
   const buttonWidthLocks = hasInstagramTab
-    ? [idleButtonText, t('scanning'), t('scanningCount', { count: 88888 }), t('scanningPercent', { percent: 88 })]
+    ? [
+        idleButtonText,
+        t('scanning'),
+        t('scanningCount', { count: 88888 }),
+        t('scanningPercent', { percent: 88 }),
+        t('scanningWaiting', { seconds: 60 }),
+      ]
     : [visibleButtonText];
 
   const renderRefreshButton = (className?: string) => (
@@ -272,22 +296,29 @@ function Popup() {
         )}
 
         {loading && (
-          <div className="mt-2 grid h-5 w-full place-items-center">
-            <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              {progressPercent !== null ? (
-                <div
-                  className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              ) : (
-                <motion.div
-                  className="absolute inset-y-0 w-2/5 rounded-full bg-primary"
-                  initial={{ x: '-100%' }}
-                  animate={{ x: '250%' }}
-                  transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
-                />
-              )}
+          <div className="mt-2">
+            <div className="grid h-5 w-full place-items-center">
+              <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                {progressPercent !== null ? (
+                  <div
+                    className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                ) : (
+                  <motion.div
+                    className="absolute inset-y-0 w-2/5 rounded-full bg-primary"
+                    initial={{ x: '-100%' }}
+                    animate={{ x: '250%' }}
+                    transition={{ repeat: Infinity, duration: 1.2, ease: 'easeInOut' }}
+                  />
+                )}
+              </div>
             </div>
+            {(!firstTime || retrySeconds) && (
+              <p className="mt-2 text-balance text-center text-xs text-muted-foreground">
+                {retrySeconds ? t('scanRateLimit', { seconds: retrySeconds }) : t('scanningInfo')}
+              </p>
+            )}
           </div>
         )}
 

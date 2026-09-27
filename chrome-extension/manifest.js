@@ -4,6 +4,7 @@ import deepmerge from 'deepmerge';
 const packageJson = JSON.parse(fs.readFileSync('../package.json', 'utf8'));
 
 const isFirefox = process.env.__FIREFOX__ === 'true';
+const isDev = process.env.__DEV__ === 'true';
 
 /** Chrome opens the UI in the side panel, which stays open while browsing. */
 const sidePanelConfig = {
@@ -56,6 +57,18 @@ const manifest = deepmerge(
         js: ['content/index.iife.js'],
       },
     ],
+    // Dev reloads the content script via import(chrome.runtime.getURL(...)).
+    // Chrome only allows that when the file is web-accessible.
+    ...(isDev
+      ? {
+          web_accessible_resources: [
+            {
+              resources: ['content/*'],
+              matches: instagramPages,
+            },
+          ],
+        }
+      : {}),
   },
   isFirefox ? popupConfig : sidePanelConfig,
 );

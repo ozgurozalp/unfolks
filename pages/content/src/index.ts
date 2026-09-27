@@ -6,11 +6,41 @@ import {
   Instagram,
   TYPES,
   type InstagramViewer,
+  type ScanProgress,
 } from '@extension/shared';
 import { sendMessageToBackground } from '@src/lib/utils';
 
 let instagram: Instagram | undefined;
 let viewer: InstagramViewer | undefined;
+let scanning = false;
+let lastProgress: ScanProgress | null = null;
+let rateLimitUntil = 0;
+
+function pushProgress(progress: ScanProgress) {
+  if (progress.retryInMs && progress.retryInMs > 0) {
+    rateLimitUntil = Date.now() + progress.retryInMs;
+  } else {
+    rateLimitUntil = 0;
+  }
+  lastProgress = progress;
+  sendMessageToBackground({
+    type: TYPES.PROGRESS,
+    phase: progress.phase,
+    current: progress.current,
+    total: progress.total,
+    retryInMs: progress.retryInMs,
+  }).catch(console.error);
+}
+
+function pushScanState() {
+  if (!scanning) return;
+  const base = lastProgress ?? { phase: 'following', current: 0, total: 0 };
+  const remaining = rateLimitUntil - Date.now();
+  pushProgress({
+    ...base,
+    retryInMs: remaining > 0 ? remaining : undefined,
+  });
+}
 
 function pushViewer() {
   if (!viewer) return;
@@ -48,20 +78,24 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
     return;
   }
 
+  if (request.type === TYPES.GET_SCAN_STATE) {
+    pushScanState();
+    return;
+  }
+
   void (async () => {
     await ready;
     if (!instagram) return;
 
     if (request.type === TYPES.GET_PEOPLE) {
+      if (scanning) {
+        pushScanState();
+        return;
+      }
+
+      scanning = true;
       try {
-        const users = await instagram.getPeople(progress => {
-          sendMessageToBackground({
-            type: TYPES.PROGRESS,
-            phase: progress.phase,
-            current: progress.current,
-            total: progress.total,
-          }).catch(console.error);
-        });
+        const users = await instagram.getPeople(pushProgress);
         sendMessageToBackground({
           users,
           viewer,
@@ -80,6 +114,9 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             errorMessage: error instanceof Error ? error.message : undefined,
           }).catch(console.error);
         }
+      } finally {
+        scanning = false;
+        lastProgress = null;
       }
     }
 

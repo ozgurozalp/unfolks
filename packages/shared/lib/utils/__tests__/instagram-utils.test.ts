@@ -20,9 +20,12 @@ import {
   matchCanonicalFollowBack,
   parseOptionalTimestamp,
   readFollowedBy,
+  readShowManyFollowedBy,
   shouldAbortFollowersScan,
+  shouldPreferShowMany,
   shouldSkipFollowersScan,
   shouldStopPaging,
+  showManyReportsFollowedBy,
   usersMissingFollowedBy,
   usersUnconfirmedFollowBack,
   type FriendshipUser,
@@ -232,6 +235,38 @@ describe('usersMissingFollowedBy', () => {
       { username: 'no-id' },
     ];
     expect(usersMissingFollowedBy(users).map(getFriendshipUserId)).toEqual(['2']);
+  });
+});
+
+describe('show_many', () => {
+  it('reads followed_by per id, including the nested shape', () => {
+    const flags = readShowManyFollowedBy({
+      friendship_statuses: {
+        '1': { followed_by: true },
+        '2': { friendship_status: { followed_by: false } },
+        '3': { following: true },
+      },
+    });
+    expect(flags).not.toBeNull();
+    expect(flags?.get('1')).toBe(true);
+    expect(flags?.get('2')).toBe(false);
+    expect(flags?.get('3')).toBeUndefined();
+    expect(showManyReportsFollowedBy(flags as Map<string, boolean | undefined>)).toBe(true);
+  });
+
+  it('rejects a body that is not a friendship map', () => {
+    expect(readShowManyFollowedBy({ status: 'ok' })).toBeNull();
+    expect(showManyReportsFollowedBy(new Map([['1', undefined]]))).toBe(false);
+  });
+
+  it('prefers batched show when it costs fewer requests than the followers walk', () => {
+    expect(shouldPreferShowMany(2_000, 400, 23, 100)).toBe(true);
+    expect(shouldPreferShowMany(null, 400, 23, 100)).toBe(true);
+  });
+
+  it('walks followers when that list is shorter than the batches', () => {
+    expect(shouldPreferShowMany(40, 2_000, 23, 100)).toBe(false);
+    expect(shouldPreferShowMany(100, 0, 23, 100)).toBe(false);
   });
 });
 

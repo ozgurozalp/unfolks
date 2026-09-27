@@ -41,12 +41,12 @@ export function makeEntryPointPlugin(): PluginOption {
           case 'chunk': {
             fs.writeFileSync(path.resolve(outputDir, newFileName), module.code);
 
-            if (isFirefox) {
-              const contentDirectory = extractContentDir(outputDir);
-              module.code = `import(browser.runtime.getURL("${contentDirectory}/${newFileName}"));`;
-            } else {
-              module.code = `import('./${newFileName}');`;
-            }
+            // A relative import() resolves against the page (instagram.com), so the
+            // content script never starts and the popup cannot reach it.
+            const contentDirectory = extractContentDir(outputDir).join('/');
+            const devFile = JSON.stringify(`${contentDirectory}/${newFileName}`);
+            const runtime = isFirefox ? 'browser' : 'chrome';
+            module.code = `import(${runtime}.runtime.getURL(${devFile}));`;
             break;
           }
         }

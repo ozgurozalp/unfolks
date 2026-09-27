@@ -21,6 +21,8 @@ export interface ScanProgress {
   phase: ProgressPhase;
   current: number;
   total: number;
+  /** Set while Instagram is rate-limiting the scan. The scan keeps waiting. */
+  retryInMs?: number;
 }
 
 export type Request = {
@@ -33,6 +35,7 @@ export type Request = {
   phase?: ProgressPhase;
   current?: number;
   total?: number;
+  retryInMs?: number;
   cooldownMs?: number;
 };
 
@@ -47,6 +50,7 @@ export enum TYPES {
   UNFOLLOWED = 'UNFOLLOWED',
   GET_VIEWER_DATA = 'GET_VIEWER_DATA',
   SET_VIEWER_DATA = 'SET_VIEWER_DATA',
+  GET_SCAN_STATE = 'GET_SCAN_STATE',
 }
 
 export interface InstagramSharedData {

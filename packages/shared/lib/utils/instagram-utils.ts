@@ -289,6 +289,48 @@ export function usersUnconfirmedFollowBack(users: FriendshipUser[]): FriendshipU
 }
 
 /**
+ * `POST /friendships/show_many/` returns one `followed_by` per id we sent.
+ * Null when the body is not that map.
+ */
+export function readShowManyFollowedBy(payload: unknown): Map<string, boolean | undefined> | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const statuses = (payload as { friendship_statuses?: unknown }).friendship_statuses;
+  if (!statuses || typeof statuses !== 'object') return null;
+
+  const flags = new Map<string, boolean | undefined>();
+  for (const [id, status] of Object.entries(statuses)) {
+    flags.set(String(id), readFollowedBy(status));
+  }
+  return flags;
+}
+
+/** True when a show_many body actually carried `followed_by`, not an empty status shell. */
+export function showManyReportsFollowedBy(flags: ReadonlyMap<string, boolean | undefined>): boolean {
+  for (const value of flags.values()) {
+    if (typeof value === 'boolean') return true;
+  }
+  return false;
+}
+
+/**
+ * Batched `show_many` is cheaper than walking followers when the batch count
+ * is at most the page count. An unknown follower count is unbounded, so the
+ * batch wins.
+ */
+export function shouldPreferShowMany(
+  followersCount: number | null,
+  candidateCount: number,
+  followersPageSize: number,
+  batchSize: number,
+): boolean {
+  if (candidateCount <= 0) return false;
+  const batches = Math.ceil(candidateCount / Math.max(1, batchSize));
+  if (followersCount === null) return true;
+  const pages = Math.ceil(followersCount / Math.max(1, followersPageSize));
+  return batches <= pages;
+}
+
+/**
  * Followers pages carry ~23 users no matter what `count` asks for, so walking the
  * whole list costs more requests than one `show/{id}` per candidate once the viewer
  * has far more followers than followings.
