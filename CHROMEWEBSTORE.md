@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — Unfolks
 
-> Last Updated: 2026-09-15
+> Last Updated: 2026-10-03
 
 ## Store Listing
 
@@ -17,7 +17,8 @@ FEATURES
 • Scan your following list to see who does not follow you back
 • Search, sort, and filter verified vs regular accounts
 • Unfollow one account at a time, or unfollow several with a pause between each action so Instagram is less likely to block you
-• Keeps the last scan on your computer so you can reopen the panel and continue
+• See scan progress as it runs, and a countdown when Instagram asks the extension to slow down
+• Keeps the last scan on your computer so you can reopen the panel and continue, even mid-scan
 • Works in a side panel that stays open while you browse
 
 HOW TO USE
@@ -38,8 +39,6 @@ SUPPORT
 Questions or bugs: mail@ozgurozalp.com
 Source: https://github.com/ozgurozalp/unfolks
 
-Version 1.3.1
-
 **Category** [REQUIRED]
 Social & Communication
 
@@ -57,7 +56,6 @@ English (Turkish locale included)
 | Store Icon [REQUIRED] | 128×128 PNG | ✅ Ready | chrome-extension/public/icon-128.png |
 | Toolbar 16 | 16×16 PNG | ✅ Ready | chrome-extension/public/icon-16.png |
 | Toolbar 32 | 32×32 PNG | ✅ Ready | chrome-extension/public/icon-32.png |
-| Toolbar 48 | 48×48 PNG | ✅ Ready | chrome-extension/public/icon-48.png |
 | Screenshot 1 [REQUIRED] | 1280×800 or 640×400 | ⬜ Not created | |
 | Screenshot 2 [RECOMMENDED] | 1280×800 or 640×400 | ⬜ Not created | |
 | Screenshot 3 [RECOMMENDED] | 1280×800 or 640×400 | ⬜ Not created | |
@@ -65,6 +63,9 @@ English (Turkish locale included)
 | Screenshot 5 | 1280×800 or 640×400 | ⬜ Not created | |
 | Small Promo Tile [RECOMMENDED] | 440×280 | ⬜ Not created | |
 | Marquee Promo Tile | 1400×560 | ⬜ Not created | |
+
+### Asset Notes
+- `chrome-extension/public/icon-512.png` (240 KB) and `pages/popup/public/instagram{16,32,128}.png` ship in `dist/` but nothing references them. Safe to delete to shrink the ZIP; the Instagram logo files are also a trademark risk if a reviewer spots them.
 
 ### Screenshot Notes
 1. Side panel open next to an Instagram tab, showing the unfollower list after a scan.
@@ -141,7 +142,10 @@ https://ozgurozalp.com
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 1.3.1 | 2026-09-15 | Store-readiness: real toolbar/store icons, narrower Instagram-only content scripts, no public extension assets, persist panel messages across background restarts. | Draft |
+| 1.3.4 | 2026-09-28 | Batched follow-back checks, follower paging backoff, rate-limit wait countdown in the panel, scan state survives closing and reopening the panel. Dev-only web-accessible resources (not in the store build). | Draft |
+| 1.3.3 | 2026-09-27 | Verify follow-backs per account instead of trusting Instagram's following list, which is no longer chronological and mislabels some followers. No permission changes. | Draft |
+| 1.3.2 | 2026-09-15 | Store-readiness: real toolbar/store icons, narrower Instagram-only content scripts, no public extension assets, persist panel messages across background restarts. | Draft |
+| 1.3.1 | 2026-09-14 | Previous public build. | Draft |
 
 
 ## Review Notes
@@ -150,7 +154,9 @@ https://ozgurozalp.com
 - Store screenshots (1280×800 or 640×400) still need to be captured from a running build before submission.
 - Privacy policy URL is the GitHub file. Publish that file (or a site copy) before submitting.
 - The listing name includes "Instagram" because the extension only works there. Do not use Instagram's logo in screenshots.
-- ZIP the `dist` output from `pnpm zip`. That folder does not include `.git`, `node_modules`, `CHROMEWEBSTORE.md`, or `PRIVACY.md`.
+- Upload `dist-zip/extension.zip` produced by `pnpm zip`. It puts `manifest.json` at the archive root and excludes `.git`, `node_modules`, `CHROMEWEBSTORE.md`, and `PRIVACY.md`.
+- Do NOT upload a Finder-made `dist.zip`. Finder nests everything under a `dist/` folder and adds `__MACOSX/._*` entries, so the store cannot find `manifest.json` and rejects the upload.
+- Versions 1.3.2 through 1.3.4 added no new permissions or hosts; the Permissions Justification table above is still accurate.
 - Sentry is compiled into the extension. The data disclosure form must list crash reporting.
 
 ### Rejection History
