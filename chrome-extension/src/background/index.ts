@@ -94,10 +94,17 @@ chrome.runtime.onConnect.addListener(port => {
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   sendResponse({ reply: 'ok' });
 
-  if (ports.size) {
-    for (const port of ports) port.postMessage(message);
-    return;
+  let delivered = false;
+  for (const port of ports) {
+    try {
+      port.postMessage(message);
+      delivered = true;
+    } catch {
+      // The panel closed before onDisconnect fired.
+      ports.delete(port);
+    }
   }
+  if (delivered) return;
 
   void enqueueBufferTask(() => bufferMessage(message));
 });

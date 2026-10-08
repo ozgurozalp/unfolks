@@ -3,6 +3,7 @@ import { createJSONStorage, devtools, persist } from 'zustand/middleware';
 import {
   DEFAULT_USER_SORT,
   resolveUserSortKey,
+  withoutTransientState,
   type InstagramViewer,
   type User,
   type UserSortKey,
@@ -44,7 +45,6 @@ export interface MainStore {
   unfollowers: User[] | null;
   /** Whether an Instagram tab is open somewhere, active or in the background. */
   hasInstagramTab: boolean;
-  previousUnfollowerCount: number | null;
   lastScannedAt: number | null;
   blockedUntil: number | null;
   viewer: InstagramViewer | null;
@@ -74,7 +74,6 @@ export const useMainStore = create<MainStore>()(
         },
         hasInstagramTab: false,
         unfollowers: null,
-        previousUnfollowerCount: null,
         lastScannedAt: null,
         blockedUntil: null,
         viewer: null,
@@ -82,11 +81,10 @@ export const useMainStore = create<MainStore>()(
         setUnfollowers: unfollowers =>
           set({
             unfollowers,
-            previousUnfollowerCount: unfollowers.length,
             lastScannedAt: Date.now(),
           }),
         setBlockedUntil: blockedUntil => set({ blockedUntil }),
-        clearUnfollowers: () => set({ unfollowers: null, previousUnfollowerCount: null, lastScannedAt: null }),
+        clearUnfollowers: () => set({ unfollowers: null, lastScannedAt: null }),
         removeUnfollower: id =>
           set(state => ({
             unfollowers: state.unfollowers?.filter(user => user.id !== id),
@@ -103,8 +101,8 @@ export const useMainStore = create<MainStore>()(
         name: 'main-storage',
         storage: createJSONStorage(() => localStorage),
         partialize: state => ({
-          unfollowers: state.unfollowers,
-          previousUnfollowerCount: state.previousUnfollowerCount,
+          // A spinner saved mid-unfollow would never clear after the panel reopens.
+          unfollowers: state.unfollowers && withoutTransientState(state.unfollowers),
           lastScannedAt: state.lastScannedAt,
           blockedUntil: state.blockedUntil,
           viewer: state.viewer,
@@ -115,6 +113,8 @@ export const useMainStore = create<MainStore>()(
           return {
             ...current,
             ...stored,
+            // Older versions saved the spinner flag; drop it on load too.
+            unfollowers: stored?.unfollowers ? withoutTransientState(stored.unfollowers) : current.unfollowers,
             sortKey: readStoredSortKey(),
           };
         },

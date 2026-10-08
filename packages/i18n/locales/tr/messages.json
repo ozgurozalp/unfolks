@@ -38,5 +38,17 @@
   "actionBlocked": {
     "description": "Instagram bir işlemi geçici olarak engellediğinde gösterilir (feedback_required / checkpoint)",
     "message": "Instagram bu işlemi geçici olarak engelledi. Lütfen birkaç saat bekleyip tekrar deneyin."
+  },
+  "unfollowFailed": {
+    "description": "Instagram bir takipten çıkmayı bilinmeyen bir nedenle reddettiğinde gösterilir",
+    "message": "Bu hesap takipten çıkarılamadı. Lütfen biraz sonra tekrar deneyin."
+  },
+  "accountMismatch": {
+    "description": "Liste, giriş yapılmış hesaptan farklı bir Instagram hesabına ait olduğunda gösterilir",
+    "message": "Bu liste başka bir Instagram hesabına ait. Lütfen listeyi yenileyin."
+  },
+  "scanFailed": {
+    "description": "Tarama sırasında Instagram beklenmedik bir yanıt döndüğünde gösterilir",
+    "message": "Instagram beklenmedik bir yanıt döndü. Lütfen Instagram'ı yenileyip tekrar deneyin."
   }
 }

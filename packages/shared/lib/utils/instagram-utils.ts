@@ -244,9 +244,21 @@ export function shouldStopPaging(
   return !nextMaxId || pageLength === 0 || nextMaxId === prevMaxId;
 }
 
-/** Cursor repeated. The walk is incomplete — a missing id is unknown, not a non-follower. */
-export function isPagingStuck(nextMaxId: string | null | undefined, pageLength: number, prevMaxId?: string): boolean {
-  return Boolean(nextMaxId) && pageLength > 0 && nextMaxId === prevMaxId;
+export type FollowersPageOutcome = 'continue' | 'complete' | 'incomplete';
+
+/**
+ * Only a missing cursor proves the followers walk reached the end. An empty page
+ * that still has a cursor, or a repeated cursor, means the walk stopped early —
+ * a missing id is then unknown, not a non-follower.
+ */
+export function followersPageOutcome(
+  nextMaxId: string | null | undefined,
+  pageLength: number,
+  prevMaxId?: string,
+): FollowersPageOutcome {
+  if (!nextMaxId) return 'complete';
+  if (pageLength === 0 || nextMaxId === prevMaxId) return 'incomplete';
+  return 'continue';
 }
 
 /**

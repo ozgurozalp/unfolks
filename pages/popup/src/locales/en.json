@@ -44,7 +44,7 @@
     "scanningPercent": "Scanning {{percent}}%",
     "scanningCount": "Scanning ({{count}})",
     "actionBlocked": "Instagram temporarily blocked this action. Please wait a few hours and try again.",
-    "accountChanged": "Profile has changed. Please refresh the list to see the updated unfollowers.",
+    "accountChanged": "Your Instagram account changed, so the old list was cleared. Refresh to scan this account.",
     "unfollowAll": "Unfollow all ({{count}})",
     "unfollowAllTitle": "Unfollow all accounts?",
     "unfollowAllDescription": "This will unfollow {{count}} accounts. You can stop anytime, but it can't be undone.",
@@ -59,6 +59,7 @@
     "announcementTitle": "Rock Paper Scissors Online",
     "announcementDescription": "Our new game is on the App Store! Challenge your friends and play Rock Paper Scissors online, head to head in real time.",
     "announcementButton": "Download on the App Store",
-    "announcementClose": "Close"
+    "announcementClose": "Close",
+    "scanIncomplete": "Instagram stopped the check early, so some accounts couldn't be verified and were left out of the list. Refresh later to check them again."
   }
 }

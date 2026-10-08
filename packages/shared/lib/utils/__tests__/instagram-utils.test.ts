@@ -4,12 +4,12 @@ import {
   dedupeFriendshipUsers,
   extractFollowBackIds,
   extractGraphqlTokens,
+  followersPageOutcome,
   getFriendshipUserId,
   hasListFollowBack,
   indexFollowBackAliases,
   inlineFollowBackIds,
   isActionBlocked,
-  isPagingStuck,
   isGraphqlUnfollowBlocked,
   isGraphqlUnfollowSuccess,
   isRetryableIgFail,
@@ -154,12 +154,23 @@ describe('shouldStopPaging', () => {
   });
 });
 
-describe('isPagingStuck', () => {
-  it('is stuck only when a non-empty page repeats the cursor', () => {
-    expect(isPagingStuck('abc', 10, 'abc')).toBe(true);
-    expect(isPagingStuck('next', 10, 'abc')).toBe(false);
-    expect(isPagingStuck(null, 10, 'abc')).toBe(false);
-    expect(isPagingStuck('abc', 0, 'abc')).toBe(false);
+describe('followersPageOutcome', () => {
+  it('is complete only when there is no next cursor', () => {
+    expect(followersPageOutcome(null, 10, 'abc')).toBe('complete');
+    expect(followersPageOutcome(undefined, 0, 'abc')).toBe('complete');
+  });
+
+  it('is incomplete when an empty page still has a cursor', () => {
+    expect(followersPageOutcome('next', 0, 'abc')).toBe('incomplete');
+  });
+
+  it('is incomplete when the cursor repeats', () => {
+    expect(followersPageOutcome('abc', 10, 'abc')).toBe('incomplete');
+  });
+
+  it('continues while pages advance', () => {
+    expect(followersPageOutcome('next', 10, 'abc')).toBe('continue');
+    expect(followersPageOutcome('next', 10, undefined)).toBe('continue');
   });
 });
 

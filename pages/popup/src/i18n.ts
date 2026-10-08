@@ -9,7 +9,7 @@ const defaultLanguage = TR_LANGUAGES.includes(navigator.language) ? 'tr' : 'en';
 i18n.use(initReactI18next).init({
   fallbackLng: 'en',
   lng: defaultLanguage,
-  debug: true,
+  debug: false,
   resources: {
     tr,
     en,

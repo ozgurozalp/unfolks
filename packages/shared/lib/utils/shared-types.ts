@@ -37,6 +37,10 @@ export type Request = {
   total?: number;
   retryInMs?: number;
   cooldownMs?: number;
+  /** SET_PEOPLE: some accounts could not be verified and were left out. */
+  incomplete?: boolean;
+  /** UNFOLLOW: the account the list was scanned with. */
+  expectedViewer?: Pick<InstagramViewer, 'id' | 'username'>;
 };
 
 export enum TYPES {

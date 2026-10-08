@@ -44,7 +44,7 @@
     "scanningPercent": "Taranıyor %{{percent}}",
     "scanningCount": "Taranıyor ({{count}})",
     "actionBlocked": "Instagram bu işlemi geçici olarak engelledi. Lütfen birkaç saat bekleyip tekrar deneyin.",
-    "accountChanged": "Profiliniz değişti. Güncel takip etmeyenleri görmek için listeyi yenileyin.",
+    "accountChanged": "Instagram hesabınız değişti, bu yüzden eski liste temizlendi. Bu hesabı taramak için listeyi yenileyin.",
     "unfollowAll": "Tümünü bırak ({{count}})",
     "unfollowAllTitle": "Tüm hesapların takibi bırakılsın mı?",
     "unfollowAllDescription": "Bu işlem {{count}} hesabın takibini bırakır. İstediğin an durdurabilirsin ama geri alınamaz.",
@@ -59,6 +59,7 @@
     "announcementTitle": "Taş Kağıt Makas Online",
     "announcementDescription": "Yeni oyunumuz App Store'da! Arkadaşlarına meydan oku, online karşılıklı Taş Kağıt Makas oyna.",
     "announcementButton": "App Store'dan indir",
-    "announcementClose": "Kapat"
+    "announcementClose": "Kapat",
+    "scanIncomplete": "Instagram kontrolü erken durdurdu, bu yüzden bazı hesaplar doğrulanamadı ve listeye eklenmedi. Tekrar kontrol etmek için daha sonra listeyi yenileyin."
   }
 }

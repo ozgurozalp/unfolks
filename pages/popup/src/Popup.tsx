@@ -1,4 +1,11 @@
-import { TYPES, useMountEffect, withErrorBoundary, withSuspense } from '@extension/shared';
+import {
+  findNewUnfollowers,
+  isSameViewer,
+  TYPES,
+  useMountEffect,
+  withErrorBoundary,
+  withSuspense,
+} from '@extension/shared';
 import type { Request } from '@extension/shared';
 import { Button, cn, Toaster } from '@extension/ui';
 import { useTranslation } from 'react-i18next';
@@ -9,6 +16,7 @@ import ProfileCard from '@src/components/ProfileCard';
 import Onboarding from '@src/components/Onboarding';
 import AnnouncementDialog from '@src/components/AnnouncementDialog';
 import { useMainStore } from '@src/store';
+import { useRateLimitedUnfollow } from '@src/hooks/useRateLimitedUnfollow';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
@@ -35,7 +43,7 @@ function Popup() {
     setUnfollowers,
     removeUnfollower,
     changeUserLoading,
-    previousUnfollowerCount,
+    clearUnfollowers,
     lastScannedAt,
     blockedUntil,
     setBlockedUntil,
@@ -46,6 +54,7 @@ function Popup() {
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const { cancelBulk } = useRateLimitedUnfollow();
 
   const isBlocked = typeof blockedUntil === 'number' && blockedUntil > now;
 
@@ -55,15 +64,25 @@ function Popup() {
     return () => clearInterval(id);
   }, []);
 
+  // Clearing an expired cooldown re-renders the memoized list, whose buttons
+  // would otherwise stay disabled after the countdown reaches zero.
+  useEffect(() => {
+    if (blockedUntil === null) return;
+    const id = window.setTimeout(() => setBlockedUntil(null), Math.max(0, blockedUntil - Date.now()));
+    return () => window.clearTimeout(id);
+  }, [blockedUntil, setBlockedUntil]);
+
   const handleMessage = (request: Request) => {
     switch (request.type) {
       case TYPES.SET_PEOPLE: {
         const newUsers = request.users ?? [];
-        const currentCount = newUsers.length;
+        const accountChanged = Boolean(request.viewer && viewer && !isSameViewer(viewer, request.viewer));
+        if (accountChanged) cancelBulk();
+        // A list from another account says nothing about who unfollowed this one.
+        const previous = accountChanged ? null : unfollowers;
+        const newUnfollowersCount = findNewUnfollowers(previous, newUsers).length;
 
-        // Check if we should show warning
-        if (previousUnfollowerCount !== null && currentCount > previousUnfollowerCount) {
-          const newUnfollowersCount = currentCount - previousUnfollowerCount;
+        if (newUnfollowersCount > 0) {
           const message =
             newUnfollowersCount === 1
               ? t('newUnfollowersWarning_one', { count: newUnfollowersCount })
@@ -73,10 +92,18 @@ function Popup() {
             position: 'bottom-center',
             duration: 5000,
           });
-        } else if (previousUnfollowerCount !== null) {
+        } else if (previous !== null) {
           toast.success(t('listUpdated'), {
             id: 'list-updated',
             position: 'bottom-center',
+          });
+        }
+
+        if (request.incomplete) {
+          toast.warning(t('scanIncomplete'), {
+            id: 'scan-incomplete',
+            position: 'bottom-center',
+            duration: 8000,
           });
         }
 
@@ -142,8 +169,10 @@ function Popup() {
       }
       case TYPES.SET_VIEWER_DATA: {
         if (request.viewer) {
-          if (viewer && unfollowers && viewer.username !== request.viewer.username) {
-            useMainStore.setState({ previousUnfollowerCount: null });
+          // The old list would be unfollowed from the new account, so it must go.
+          if (viewer && unfollowers && !isSameViewer(viewer, request.viewer)) {
+            cancelBulk();
+            clearUnfollowers();
             toast.warning(t('accountChanged'), {
               id: 'account-changed',
               position: 'bottom-center',

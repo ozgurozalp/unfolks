@@ -49,9 +49,12 @@ export function RateLimiterProvider({ children }: RateLimiterProviderProps) {
   const rateLimiter = useRateLimiter(
     async (user: User) => {
       try {
+        const { viewer } = useMainStore.getState();
         await sendMessage({
           type: TYPES.UNFOLLOW,
           user,
+          // Lets the tab refuse if a different account is logged in there now.
+          expectedViewer: viewer ? { id: viewer.id, username: viewer.username } : undefined,
         });
       } catch (error) {
         changeUserLoading(user.id, false);

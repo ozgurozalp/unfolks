@@ -1,17 +1,21 @@
 import {
+  AccountMismatchError,
   ActionBlockedError,
   AuthenticationError,
   captureException,
   getSharedData,
   Instagram,
+  isSameViewer,
   TYPES,
   type InstagramViewer,
+  type Request,
   type ScanProgress,
+  type User,
 } from '@extension/shared';
 import { sendMessageToBackground } from '@src/lib/utils';
 
-let instagram: Instagram | undefined;
 let viewer: InstagramViewer | undefined;
+let setup: Promise<Instagram> | null = null;
 let scanning = false;
 let lastProgress: ScanProgress | null = null;
 let rateLimitUntil = 0;
@@ -50,111 +54,123 @@ function pushViewer() {
   }).catch(console.error);
 }
 
-const ready = (async () => {
-  try {
-    const sharedData = await getSharedData();
-    if (!sharedData) return;
+/**
+ * Load the session once. A failed attempt is dropped so the next request tries
+ * again, instead of leaving this tab unable to scan until it is reloaded.
+ */
+function ensureInstagram(): Promise<Instagram> {
+  if (!setup) {
+    const attempt = (async () => {
+      const sharedData = await getSharedData();
+      if (!sharedData) throw new Error('Instagram session data is unavailable');
 
-    viewer = sharedData.config.viewer;
-    instagram = new Instagram(sharedData);
-    pushViewer();
-  } catch (error) {
-    if (error instanceof AuthenticationError) {
-      sendMessageToBackground({
-        type: TYPES.AUTH_ERROR,
-        errorMessage: error.message,
-      }).catch(console.error);
-    } else {
-      captureException(error as Error);
-    }
+      viewer = sharedData.config.viewer;
+      pushViewer();
+      return new Instagram(sharedData);
+    })();
+    setup = attempt;
+    attempt.catch(() => {
+      if (setup === attempt) setup = null;
+    });
   }
-})();
+  return setup;
+}
 
-chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  sendResponse({ reply: 'ok' });
+// Being logged out is normal while browsing; it is reported when a scan or unfollow is requested.
+ensureInstagram().catch(error => {
+  if (!(error instanceof AuthenticationError)) captureException(error as Error);
+});
 
-  if (request.type === TYPES.GET_VIEWER_DATA) {
-    pushViewer();
+/** Every request gets an answer, so the panel never waits on a spinner forever. */
+function reportFailure(error: unknown, user?: User) {
+  const deletedId = user?.id;
+
+  if (error instanceof AuthenticationError) {
+    sendMessageToBackground({ type: TYPES.AUTH_ERROR, errorMessage: error.message, deletedId }).catch(console.error);
     return;
   }
 
-  if (request.type === TYPES.GET_SCAN_STATE) {
+  if (error instanceof ActionBlockedError) {
+    sendMessageToBackground({
+      status: false,
+      type: TYPES.ACTION_BLOCKED,
+      user,
+      deletedId,
+      errorMessage: error.message,
+      cooldownMs: error.cooldownMs,
+    }).catch(console.error);
+    return;
+  }
+
+  if (!user) captureException(error as Error);
+  sendMessageToBackground({
+    status: false,
+    type: TYPES.ERROR,
+    user,
+    deletedId,
+    errorMessage: error instanceof Error ? error.message : undefined,
+  }).catch(console.error);
+}
+
+async function scan() {
+  if (scanning) {
     pushScanState();
     return;
   }
 
-  void (async () => {
-    await ready;
-    if (!instagram) return;
+  scanning = true;
+  try {
+    const instagram = await ensureInstagram();
+    const { users, incomplete } = await instagram.getPeople(pushProgress);
+    sendMessageToBackground({
+      users,
+      viewer,
+      incomplete,
+      type: TYPES.SET_PEOPLE,
+    }).catch(console.error);
+  } catch (error) {
+    reportFailure(error);
+  } finally {
+    scanning = false;
+    lastProgress = null;
+  }
+}
 
-    if (request.type === TYPES.GET_PEOPLE) {
-      if (scanning) {
-        pushScanState();
-        return;
-      }
-
-      scanning = true;
-      try {
-        const users = await instagram.getPeople(pushProgress);
-        sendMessageToBackground({
-          users,
-          viewer,
-          type: TYPES.SET_PEOPLE,
-        }).catch(console.error);
-      } catch (error) {
-        if (error instanceof AuthenticationError) {
-          sendMessageToBackground({
-            type: TYPES.AUTH_ERROR,
-            errorMessage: error.message,
-          }).catch(console.error);
-        } else {
-          captureException(error as Error);
-          sendMessageToBackground({
-            type: TYPES.ERROR,
-            errorMessage: error instanceof Error ? error.message : undefined,
-          }).catch(console.error);
-        }
-      } finally {
-        scanning = false;
-        lastProgress = null;
-      }
+async function unfollow(request: Request & { user: User }) {
+  try {
+    const instagram = await ensureInstagram();
+    // The list may have been scanned with another account; this tab would unfollow from the current one.
+    if (request.expectedViewer && viewer && !isSameViewer(request.expectedViewer, viewer)) {
+      throw new AccountMismatchError();
     }
 
-    if (request.type === TYPES.UNFOLLOW) {
-      try {
-        const { status, deletedId } = await instagram.unFollow(request.user);
-        sendMessageToBackground({
-          status,
-          type: status ? TYPES.UNFOLLOWED : TYPES.ERROR,
-          user: request.user,
-          deletedId,
-        }).catch(console.error);
-      } catch (error) {
-        if (error instanceof AuthenticationError) {
-          sendMessageToBackground({
-            type: TYPES.AUTH_ERROR,
-            errorMessage: error.message,
-            deletedId: request.user?.id,
-          }).catch(console.error);
-        } else if (error instanceof ActionBlockedError) {
-          sendMessageToBackground({
-            status: false,
-            type: TYPES.ACTION_BLOCKED,
-            user: request.user,
-            deletedId: request.user?.id,
-            errorMessage: error.message,
-            cooldownMs: error.cooldownMs,
-          }).catch(console.error);
-        } else {
-          sendMessageToBackground({
-            status: false,
-            type: TYPES.ERROR,
-            user: request.user,
-            deletedId: request.user?.id,
-            errorMessage: error instanceof Error ? error.message : undefined,
-          }).catch(console.error);
-        }
-      }
-    }
-  })();
+    const { status, deletedId } = await instagram.unFollow(request.user);
+    sendMessageToBackground({
+      status,
+      type: status ? TYPES.UNFOLLOWED : TYPES.ERROR,
+      user: request.user,
+      deletedId,
+    }).catch(console.error);
+  } catch (error) {
+    reportFailure(error, request.user);
+  }
+}
+
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  sendResponse({ reply: 'ok' });
+
+  switch (request.type) {
+    case TYPES.GET_VIEWER_DATA:
+      pushViewer();
+      return;
+    case TYPES.GET_SCAN_STATE:
+      pushScanState();
+      return;
+    case TYPES.GET_PEOPLE:
+      void scan();
+      return;
+    case TYPES.UNFOLLOW:
+      void unfollow(request);
+      return;
+  }
 });

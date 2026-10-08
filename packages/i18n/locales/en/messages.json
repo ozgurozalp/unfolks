@@ -38,5 +38,17 @@
   "actionBlocked": {
     "description": "Shown when Instagram temporarily blocks an action (feedback_required / checkpoint)",
     "message": "Instagram temporarily blocked this action. Please wait a few hours and try again."
+  },
+  "unfollowFailed": {
+    "description": "Shown when Instagram rejects an unfollow for an unknown reason",
+    "message": "Couldn't unfollow this account. Please try again in a moment."
+  },
+  "accountMismatch": {
+    "description": "Shown when the list belongs to a different Instagram account than the one logged in",
+    "message": "This list belongs to another Instagram account. Please refresh the list."
+  },
+  "scanFailed": {
+    "description": "Shown when Instagram returns an unexpected response during a scan",
+    "message": "Instagram sent an unexpected response. Please refresh Instagram and try again."
   }
 }
