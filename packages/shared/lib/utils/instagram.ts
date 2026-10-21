@@ -2,6 +2,7 @@ import type { InstagramSharedData, ScanProgress, ScanStopReason, User } from '.'
 import { t } from '@extension/i18n';
 import {
   classifyIgFailure,
+  classifyNonJson,
   compactFriendshipUser,
   computeUnfollowers,
   dedupeFriendshipUsers,
@@ -683,18 +684,22 @@ export class Instagram {
         ? await this.postForm(url, form)
         : await fetch(url, { headers: this.igHeaders(), credentials: 'include' });
 
+      const text = await response.text();
       let body: unknown;
-      let parsed = true;
+      let parsed = text.trim().length > 0;
       try {
-        body = await response.json();
+        body = parsed ? JSON.parse(text) : undefined;
       } catch {
         parsed = false;
       }
 
       if (response.ok && !parsed) {
-        // An HTML page instead of JSON is Instagram's login wall.
-        this.remember(response.status, { message: 'not json' });
-        throw new AuthenticationError(t('authError'));
+        // Only a redirect to the login or challenge page means more than a failed request.
+        const page = classifyNonJson(text, response.url, response.redirected);
+        this.lastHttp = { status: response.status, message: page.summary };
+        if (page.kind === 'auth') throw new AuthenticationError(t('authError'));
+        if (page.kind === 'blocked') throw new ScanStoppedError('blocked', scanStopMessage('blocked'));
+        throw new Error(t('scanFailed'));
       }
 
       const data = (body ?? {}) as T;

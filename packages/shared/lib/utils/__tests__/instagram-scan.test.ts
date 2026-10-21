@@ -277,14 +277,37 @@ describe('Instagram scan safety', () => {
     expect(result.users).toEqual([]);
   });
 
-  it('treats an HTML page instead of JSON as a sign-out', async () => {
-    installFetch([
-      url => (url.pathname.endsWith('/info/') ? json({ user: { following_count: 2, follower_count: 2 } }) : undefined),
-      url => (url.pathname.endsWith('/following/') ? new Response('<html>login</html>') : undefined),
+  it('falls back to show_many when the followers list answers with a page instead of JSON', async () => {
+    const calls = installFetch([
+      url => (url.pathname.endsWith('/info/') ? json({ user: { following_count: 2, follower_count: 10 } }) : undefined),
+      followingOf(['1', '2']),
+      url => (url.pathname.endsWith('/followers/') ? new Response('<html><title>Instagram</title></html>') : undefined),
+      url =>
+        url.pathname.endsWith('/show_many/')
+          ? json({ friendship_statuses: { '1': { followed_by: true }, '2': { followed_by: false } }, status: 'ok' })
+          : undefined,
     ]);
 
-    const error = await new Instagram(sharedData).getPeople({ pacing: NO_DELAY }).catch(caught => caught);
+    const result = await new Instagram(sharedData).getPeople({ pacing: NO_DELAY });
+
+    expect(calls.some(call => call.includes('/show_many/'))).toBe(true);
+    expect(result.users.map(found => found.id)).toEqual(['2']);
+    expect(result.incomplete).toBe(false);
+  });
+
+  it('stops with a sign-out only when Instagram redirects to the login page', async () => {
+    const loginPage = new Response('<html><title>Login</title></html>');
+    Object.defineProperty(loginPage, 'redirected', { value: true });
+    Object.defineProperty(loginPage, 'url', { value: 'https://www.instagram.com/accounts/login/?next=x' });
+    const instagram = new Instagram(sharedData);
+    installFetch([
+      url => (url.pathname.endsWith('/info/') ? json({ user: { following_count: 2, follower_count: 2 } }) : undefined),
+      url => (url.pathname.endsWith('/following/') ? loginPage : undefined),
+    ]);
+
+    const error = await instagram.getPeople({ pacing: NO_DELAY }).catch(caught => caught);
     expect(error).toMatchObject({ name: 'AuthenticationError' });
+    expect(instagram.lastHttp?.message).toBe('html "Login" → /accounts/login/');
   });
 });
 

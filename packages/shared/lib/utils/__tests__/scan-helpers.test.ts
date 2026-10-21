@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   classifyIgFailure,
+  classifyNonJson,
   compactFriendshipUser,
   followersWalkLooksComplete,
   graphqlUnfollowOutcome,
@@ -72,6 +73,30 @@ describe('followersWalkLooksComplete', () => {
 
   it('trusts the walk when the follower count is unknown', () => {
     expect(followersWalkLooksComplete(5, null)).toBe(true);
+  });
+});
+
+describe('classifyNonJson', () => {
+  it('treats a redirect to the login page as a sign-out', () => {
+    expect(classifyNonJson('<title>Login</title>', 'https://www.instagram.com/accounts/login/', true)).toEqual({
+      kind: 'auth',
+      summary: 'html "Login" → /accounts/login/',
+    });
+  });
+
+  it('treats a redirect to a challenge as a block', () => {
+    expect(classifyNonJson('', 'https://www.instagram.com/challenge/abc/', true).kind).toBe('blocked');
+  });
+
+  it('treats any other page or an empty body as a plain failure', () => {
+    expect(
+      classifyNonJson('<html><title>Instagram</title></html>', 'https://www.instagram.com/api/v1/x/', false),
+    ).toEqual({
+      kind: 'other',
+      summary: 'html "Instagram"',
+    });
+    expect(classifyNonJson('  ', '', false)).toEqual({ kind: 'other', summary: 'empty body' });
+    expect(classifyNonJson('for (;;); {"a":1}', '', false).summary).toBe('not json "for (;;); {"a":1}"');
   });
 });
 

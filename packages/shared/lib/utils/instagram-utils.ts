@@ -544,6 +544,33 @@ export function followersWalkLooksComplete(seen: number, expected: number | null
   return seen + allowance >= expected;
 }
 
+/**
+ * What a 200 response that is not JSON means. Only a redirect to the login or
+ * challenge page says something about the session; any other page (or an
+ * empty body) is just a failed request, so the caller can fall back to
+ * another way of checking instead of stopping.
+ */
+export function classifyNonJson(
+  text: string,
+  finalUrl: string,
+  redirected: boolean,
+): { kind: 'auth' | 'blocked' | 'other'; summary: string } {
+  let path = '';
+  try {
+    path = new URL(finalUrl).pathname;
+  } catch {
+    path = '';
+  }
+  const title = text.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 60);
+  const what = !text.trim() ? 'empty body' : title ? `html "${title.slice(0, 60)}"` : `not json "${snippet}"`;
+  const summary = redirected && path ? `${what} → ${path}` : what;
+
+  if (redirected && /^\/(accounts\/login|login)/.test(path)) return { kind: 'auth', summary };
+  if (redirected && /^\/(challenge|checkpoint|accounts\/suspended)/.test(path)) return { kind: 'blocked', summary };
+  return { kind: 'other', summary };
+}
+
 export type IgFailureKind = 'auth' | 'rate' | 'blocked' | 'other';
 
 const RATE_LIMIT_PATTERN = /wait a few minutes|please wait|try again later|rate limit|too many requests/i;
