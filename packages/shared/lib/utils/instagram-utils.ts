@@ -14,6 +14,7 @@ export interface FriendshipUser {
   profile_pic_url?: string;
   is_private?: boolean;
   is_verified?: boolean;
+  has_anonymous_profile_picture?: boolean;
   friendship_status?: FriendshipStatus;
   /** Accurate on the old `edge_follow` connection; still honored when the web list sends it. */
   follows_viewer?: boolean;
@@ -139,7 +140,7 @@ export function isRetryableIgFail(data: { status?: string; message?: string }): 
   );
 }
 
-/** Instagram web's current unfollow mutation. Rotates; REST remains the fallback. */
+/** Instagram web's current unfollow mutation. The doc id rotates with Instagram releases. */
 export const UNFOLLOW_DOC_ID = '27789106940691111';
 export const UNFOLLOW_FRIENDLY_NAME = 'usePolarisUnfollowMutation';
 
@@ -216,6 +217,25 @@ export function isGraphqlUnfollowSuccess(payload: unknown): boolean {
   if (following === false) return true;
   if (following === true) return false;
   return record.status === 'ok' || hasOkStatus(record.data);
+}
+
+/**
+ * `confirmed`: the mutation says the follow is gone.
+ * `unconfirmed`: Instagram answered ok without saying; check the following list.
+ * `failed`: errors, no data, or the follow is still there.
+ */
+export type GraphqlUnfollowOutcome = 'confirmed' | 'unconfirmed' | 'failed';
+
+export function graphqlUnfollowOutcome(payload: unknown): GraphqlUnfollowOutcome {
+  if (!payload || typeof payload !== 'object') return 'failed';
+  const record = payload as { data?: unknown; errors?: unknown[]; status?: string };
+  if (Array.isArray(record.errors) && record.errors.length) return 'failed';
+  if (!record.data || typeof record.data !== 'object') return 'failed';
+
+  const following = friendshipFollowing(record.data);
+  if (following === false) return 'confirmed';
+  if (following === true) return 'failed';
+  return record.status === 'ok' || hasOkStatus(record.data) ? 'unconfirmed' : 'failed';
 }
 
 export function isGraphqlUnfollowBlocked(status: number, payload: unknown): boolean {
@@ -464,6 +484,9 @@ export function mapFollowingToUsers(following: FriendshipUser[], followBackIds: 
         isVerified: Boolean(user.is_verified),
         followIndex: index,
         ...(accountCreatedAt === undefined ? {} : { accountCreatedAt }),
+        ...(typeof user.has_anonymous_profile_picture === 'boolean'
+          ? { hasNoAvatar: user.has_anonymous_profile_picture }
+          : {}),
       },
     ];
   });
@@ -472,4 +495,128 @@ export function mapFollowingToUsers(following: FriendshipUser[], followBackIds: 
 /** People you follow who do not follow you back. */
 export function computeUnfollowers(followings: User[]): User[] {
   return followings.filter(following => !following.isFollowingMe);
+}
+
+/** Consecutive empty pages a list may send before the scan gives up on it. */
+export const MAX_EMPTY_PAGES = 10;
+
+export type PageStep =
+  /** Request the next page. */
+  | { kind: 'continue'; emptyRun: number }
+  /** No cursor: the list ended normally. */
+  | { kind: 'end' }
+  /** The cursor repeated, or Instagram said there is more without a cursor. */
+  | { kind: 'stuck' }
+  /** Too many empty pages in a row. */
+  | { kind: 'tooManyEmpty' };
+
+/**
+ * Instagram sometimes sends empty pages in the middle of a list that still
+ * carry a fresh cursor. Up to `maxEmpty` of those in a row are stepped over
+ * instead of ending the list there.
+ */
+export function nextPageStep(options: {
+  nextMaxId: string | null | undefined;
+  pageLength: number;
+  prevMaxId?: string;
+  emptyRun: number;
+  hasMore?: boolean;
+  maxEmpty?: number;
+}): PageStep {
+  const { nextMaxId, pageLength, prevMaxId, hasMore } = options;
+  const maxEmpty = options.maxEmpty ?? MAX_EMPTY_PAGES;
+  if (!nextMaxId) return hasMore === true ? { kind: 'stuck' } : { kind: 'end' };
+  if (nextMaxId === prevMaxId) return { kind: 'stuck' };
+  if (pageLength > 0) return { kind: 'continue', emptyRun: 0 };
+  const emptyRun = options.emptyRun + 1;
+  return emptyRun > maxEmpty ? { kind: 'tooManyEmpty' } : { kind: 'continue', emptyRun };
+}
+
+/**
+ * A followers walk that ended without a cursor is only trusted when it saw about
+ * as many followers as the profile reports. Instagram leaves out a few
+ * unavailable accounts, so a small shortfall is allowed; a bigger one means the
+ * list was cut short and a missing account may still be a follower.
+ */
+export function followersWalkLooksComplete(seen: number, expected: number | null): boolean {
+  if (expected === null || expected <= 0) return true;
+  const allowance = Math.max(3, Math.ceil(expected * 0.02));
+  return seen + allowance >= expected;
+}
+
+/**
+ * What a 200 response that is not JSON means. Only a redirect to the login or
+ * challenge page says something about the session; any other page (or an
+ * empty body) is just a failed request, so the caller can fall back to
+ * another way of checking instead of stopping.
+ */
+export function classifyNonJson(
+  text: string,
+  finalUrl: string,
+  redirected: boolean,
+): { kind: 'auth' | 'blocked' | 'other'; summary: string } {
+  let path = '';
+  try {
+    path = new URL(finalUrl).pathname;
+  } catch {
+    path = '';
+  }
+  const title = text.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim();
+  const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 60);
+  const what = !text.trim() ? 'empty body' : title ? `html "${title.slice(0, 60)}"` : `not json "${snippet}"`;
+  const summary = redirected && path ? `${what} → ${path}` : what;
+
+  if (redirected && /^\/(accounts\/login|login)/.test(path)) return { kind: 'auth', summary };
+  if (redirected && /^\/(challenge|checkpoint|accounts\/suspended)/.test(path)) return { kind: 'blocked', summary };
+  return { kind: 'other', summary };
+}
+
+export type IgFailureKind = 'auth' | 'rate' | 'blocked' | 'other';
+
+const RATE_LIMIT_PATTERN = /wait a few minutes|please wait|try again later|rate limit|too many requests/i;
+const BLOCK_PATTERN = /checkpoint|challenge|feedback_required|spam|suspicious/i;
+
+/**
+ * Sort a failed Instagram response into what the scan should do about it.
+ * Instagram often sends its rate limit as a 401 with `require_login` and
+ * "Please wait a few minutes"; signing in again does not lift that, so it
+ * counts as a rate limit, not a sign-out.
+ */
+export function classifyIgFailure(status: number, body: unknown): IgFailureKind {
+  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  const message = [record.message, record.error_type, record.feedback_message]
+    .filter((value): value is string => typeof value === 'string')
+    .join(' ');
+
+  if (record.spam === true || record.feedback_required === true || record.checkpoint_url || record.challenge) {
+    return 'blocked';
+  }
+  if (BLOCK_PATTERN.test(message)) return 'blocked';
+  if (status === 429 || RATE_LIMIT_PATTERN.test(message)) return 'rate';
+  if (status === 401 || status === 403 || record.require_login === true || /login_required/i.test(message)) {
+    return 'auth';
+  }
+  return 'other';
+}
+
+/** Keep only what a resumed scan needs, so the saved checkpoint stays small. */
+export function compactFriendshipUser(user: FriendshipUser): FriendshipUser {
+  const followedBy = user.friendship_status?.followed_by;
+  return {
+    ...(user.pk_id === undefined ? {} : { pk_id: user.pk_id }),
+    ...(user.id === undefined ? {} : { id: user.id }),
+    ...(user.pk === undefined ? {} : { pk: user.pk }),
+    username: user.username,
+    ...(user.full_name ? { full_name: user.full_name } : {}),
+    ...(user.profile_pic_url ? { profile_pic_url: user.profile_pic_url } : {}),
+    ...(user.is_private ? { is_private: true } : {}),
+    ...(user.is_verified ? { is_verified: true } : {}),
+    ...(typeof user.has_anonymous_profile_picture === 'boolean'
+      ? { has_anonymous_profile_picture: user.has_anonymous_profile_picture }
+      : {}),
+    ...(typeof followedBy === 'boolean' ? { friendship_status: { followed_by: followedBy } } : {}),
+    ...(user.follows_viewer === true ? { follows_viewer: true } : {}),
+    ...(user.created_at === undefined ? {} : { created_at: user.created_at }),
+    ...(user.created_at_utc === undefined ? {} : { created_at_utc: user.created_at_utc }),
+  };
 }

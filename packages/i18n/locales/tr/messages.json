@@ -50,5 +50,21 @@
   "scanFailed": {
     "description": "Tarama sırasında Instagram beklenmedik bir yanıt döndüğünde gösterilir",
     "message": "Instagram beklenmedik bir yanıt döndü. Lütfen Instagram'ı yenileyip tekrar deneyin."
+  },
+  "scanRateLimited": {
+    "description": "Instagram taramayı sürekli yavaşlattığında tarama durunca gösterilir",
+    "message": "Instagram bu hesabın isteklerini sınırlıyor; tarama durdu ve ilerlemesi kaydedildi. Oturumun kapanmadı. Bekleme bitince devam edebilirsin."
+  },
+  "scanBlocked": {
+    "description": "Instagram liste isteklerini reddettiğinde gösterilir (checkpoint / spam)",
+    "message": "Instagram bu hesabın liste isteklerini geçici olarak reddetti. Tarama durdu ve ilerlemesi kaydedildi. Devam etmeden önce birkaç saat bekle."
+  },
+  "scanLimitedList": {
+    "description": "Instagram takip veya takipçi listesini sınırladığında gösterilir",
+    "message": "Instagram şu an bu listeyi sınırlıyor, bu yüzden sonuç doğrulanamıyor. Tarama durdu ve ilerlemesi kaydedildi. Devam etmeden önce birkaç saat bekle."
+  },
+  "scanEmptyPages": {
+    "description": "Instagram üst üste boş sayfa gönderdiğinde gösterilir",
+    "message": "Instagram üst üste boş sayfalar gönderdi; tarama durdu ve ilerlemesi kaydedildi. Birkaç saat sonra devam et ya da veri dosyası yöntemini kullan."
   }
 }

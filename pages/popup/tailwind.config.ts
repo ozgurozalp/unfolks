@@ -11,6 +11,8 @@ export default withUI({
     // widest one-row measurement (Turkish tabs plus the longest scan label).
     plugin(({ addVariant }) => {
       addVariant('wide', '@container (min-width: 38rem)');
+      // Below 24rem (Chrome's narrowest side panel) rows stack and labels shrink so nothing overflows.
+      addVariant('roomy', '@container (min-width: 24rem)');
     }),
   ],
 });

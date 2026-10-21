@@ -1,21 +1,26 @@
-import { createContext, type ReactNode, useCallback, useContext, useRef, useState } from 'react';
-import { useMainStore } from '@src/store';
-import { TYPES } from '@extension/shared';
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef, useState } from 'react';
+import { FATAL_UNFOLLOW_STREAK, useMainStore } from '@src/store';
+import { shouldRestAfter, TYPES } from '@extension/shared';
 import type { User } from '@extension/shared';
 import sendMessage from '@src/helpers/sendMessage';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { type RateLimiter, useRateLimiter } from '@tanstack/react-pacer';
 
-// Safe values for Instagram rate limit:
-// Allow 1 unfollow per 3 seconds (20 per minute)
+// Single clicks: at most 3 unfollows in any 3 seconds. Batches pace themselves
+// with the user's settings and a long rest every few accounts.
 const RATE_LIMIT = 3;
 const RATE_WINDOW_MS = 3000;
-// Extra spacing between bulk unfollows to avoid bursty traffic.
-const BULK_MIN_GAP_MS = 2500;
-const BULK_MAX_GAP_MS = 4000;
+const SLEEP_STEP_MS = 250;
+/** Failures in a row before a batch gives up instead of hammering Instagram. */
+const MAX_FAILURE_STREAK = 3;
 
-export type BulkState = { total: number; done: number } | null;
+export type BulkState = {
+  total: number;
+  done: number;
+  /** Set while the batch rests between groups of unfollows. */
+  restingUntil?: number;
+} | null;
 
 type UnfollowFn = (user: User) => void;
 type RateLimiterContextType = {
@@ -32,19 +37,36 @@ interface RateLimiterProviderProps {
   children: ReactNode;
 }
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const randomBetween = (min: number, max: number) => Math.floor(min + Math.random() * (max - min));
+/** Integer in [min, max]. */
+const randomBetween = (min: number, max: number) => Math.floor(min + Math.random() * (max - min + 1));
+
 const isBlockedNow = () => {
   const { blockedUntil } = useMainStore.getState();
   return typeof blockedUntil === 'number' && blockedUntil > Date.now();
 };
 
+/** The batch must stop: a block, a scan in progress, or too many failures in a row. */
+const shouldStopBatch = () => {
+  const { scanning, unfollowFailureStreak } = useMainStore.getState();
+  return isBlockedNow() || scanning || unfollowFailureStreak >= MAX_FAILURE_STREAK;
+};
+
 export function RateLimiterProvider({ children }: RateLimiterProviderProps) {
-  const { changeUserLoading } = useMainStore();
+  const changeUserLoading = useMainStore(state => state.changeUserLoading);
   const { t } = useTranslation();
   const [bulkState, setBulkState] = useState<BulkState>(null);
   const bulkRunningRef = useRef(false);
   const cancelRef = useRef(false);
+
+  /** Sleep in small steps so Cancel and a block stop the batch right away. Returns false when stopped. */
+  const sleep = useCallback(async (ms: number) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      if (cancelRef.current || shouldStopBatch()) return false;
+      await new Promise(resolve => setTimeout(resolve, Math.min(SLEEP_STEP_MS, until - Date.now())));
+    }
+    return !cancelRef.current && !shouldStopBatch();
+  }, []);
 
   const rateLimiter = useRateLimiter(
     async (user: User) => {
@@ -58,6 +80,8 @@ export function RateLimiterProvider({ children }: RateLimiterProviderProps) {
         });
       } catch (error) {
         changeUserLoading(user.id, false);
+        toast.error(t('notConnected'), { id: 'connection-error', position: 'bottom-center' });
+        console.error('Unfollow request failed', error);
       }
     },
     {
@@ -68,9 +92,7 @@ export function RateLimiterProvider({ children }: RateLimiterProviderProps) {
         // Bulk mode paces itself and retries rejected calls, so avoid toast spam.
         if (bulkRunningRef.current) return;
 
-        const msUntilNext = limiter.getMsUntilNextWindow();
-        const remainingSeconds = Math.ceil(msUntilNext / 1000);
-
+        const remainingSeconds = Math.ceil(limiter.getMsUntilNextWindow() / 1000);
         if (remainingSeconds > 0) {
           toast.warning(t('rateLimitWarning', { seconds: remainingSeconds }), {
             id: 'rate-limit-warning',
@@ -86,13 +108,7 @@ export function RateLimiterProvider({ children }: RateLimiterProviderProps) {
     (user: User) => {
       if (isBlockedNow()) return;
       changeUserLoading(user.id, true);
-
-      const executed = rateLimiter.maybeExecute(user);
-
-      // If rejected, reset loading state
-      if (!executed) {
-        changeUserLoading(user.id, false);
-      }
+      if (!rateLimiter.maybeExecute(user)) changeUserLoading(user.id, false);
     },
     [changeUserLoading, rateLimiter],
   );
@@ -101,63 +117,72 @@ export function RateLimiterProvider({ children }: RateLimiterProviderProps) {
     cancelRef.current = true;
   }, []);
 
+  /** Wait until the single-click limiter lets this account through. False when stopped. */
+  const executeWhenAllowed = useCallback(
+    async (user: User) => {
+      while (!rateLimiter.maybeExecute(user)) {
+        if (!(await sleep(Math.max(SLEEP_STEP_MS, rateLimiter.getMsUntilNextWindow())))) return false;
+      }
+      return true;
+    },
+    [rateLimiter, sleep],
+  );
+
   const startBulk = useCallback(
     async (users: User[]) => {
       if (bulkRunningRef.current || users.length === 0 || isBlockedNow()) return;
 
       bulkRunningRef.current = true;
       cancelRef.current = false;
+      useMainStore.setState({ unfollowFailureStreak: 0 });
+      const pacing = useMainStore.getState().unfollowPacing;
       setBulkState({ total: users.length, done: 0 });
 
       try {
         for (let i = 0; i < users.length; i += 1) {
-          if (cancelRef.current || isBlockedNow()) break;
+          if (cancelRef.current || shouldStopBatch()) break;
 
           const user = users[i];
+          // Skip accounts hidden or already gone since the batch started.
+          const { hiddenIds, unfollowers } = useMainStore.getState();
+          if (hiddenIds[user.id] || !unfollowers?.some(current => current.id === user.id)) continue;
+
           changeUserLoading(user.id, true);
-
-          // Wait for the rate limiter to allow this execution.
-          let executed = rateLimiter.maybeExecute(user);
-          while (!executed) {
-            if (cancelRef.current || isBlockedNow()) {
-              changeUserLoading(user.id, false);
-              break;
-            }
-            const wait = Math.max(250, rateLimiter.getMsUntilNextWindow());
-            await delay(wait);
-            executed = rateLimiter.maybeExecute(user);
+          if (!(await executeWhenAllowed(user))) {
+            changeUserLoading(user.id, false);
+            break;
           }
 
-          if (!executed) break;
+          const done = i + 1;
+          setBulkState({ total: users.length, done });
+          if (done >= users.length) break;
 
-          setBulkState({ total: users.length, done: i + 1 });
-
-          // Smooth out bursts even when the limiter would allow more.
-          if (i < users.length - 1) {
-            await delay(randomBetween(BULK_MIN_GAP_MS, BULK_MAX_GAP_MS));
+          if (shouldRestAfter(done, pacing)) {
+            setBulkState({ total: users.length, done, restingUntil: Date.now() + pacing.pauseMs });
+            if (!(await sleep(pacing.pauseMs))) break;
+            setBulkState({ total: users.length, done });
           }
+          if (!(await sleep(randomBetween(pacing.gapMinMs, pacing.gapMaxMs)))) break;
         }
       } finally {
+        const streak = useMainStore.getState().unfollowFailureStreak;
+        // A sign-out has its own toast; plain failures get one explaining the stop.
+        if (streak >= MAX_FAILURE_STREAK && streak < FATAL_UNFOLLOW_STREAK) {
+          toast.error(t('bulkStoppedFailures'), { id: 'bulk-stopped', position: 'bottom-center', duration: 8000 });
+        }
         bulkRunningRef.current = false;
         setBulkState(null);
       }
     },
-    [changeUserLoading, rateLimiter],
+    [changeUserLoading, executeWhenAllowed, sleep, t],
   );
 
-  return (
-    <RateLimiterContext.Provider
-      value={{
-        unfollow,
-        getRemainingInWindow: rateLimiter.getRemainingInWindow,
-        startBulk,
-        cancelBulk,
-        bulkState,
-      }}
-    >
-      {children}
-    </RateLimiterContext.Provider>
+  const value = useMemo(
+    () => ({ unfollow, getRemainingInWindow: rateLimiter.getRemainingInWindow, startBulk, cancelBulk, bulkState }),
+    [unfollow, rateLimiter, startBulk, cancelBulk, bulkState],
   );
+
+  return <RateLimiterContext.Provider value={value}>{children}</RateLimiterContext.Provider>;
 }
 
 export function useRateLimitedUnfollow() {

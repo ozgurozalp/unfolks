@@ -1,137 +1,108 @@
-import React, { useDeferredValue, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useDeferredValue, useMemo, useState, type ReactNode } from 'react';
 import Smiley from '@src/components/Smiley';
 import { resolveUserSortKey, sortUsers, type User } from '@extension/shared';
 import List, { ListItem } from '@src/components/List';
 import SortMenu from '@src/components/SortMenu';
-import {
-  AlertDialog,
-  AlertDialogClose,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogPopup,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-  Button,
-  Input,
-  Spinner,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from '@extension/ui';
-import { useMainStore, type Tab } from '@src/store';
-import { useShallow } from 'zustand/react/shallow';
-import { isEqual } from 'lodash';
+import BulkActions from '@src/components/BulkActions';
+import { cn, Input } from '@extension/ui';
+import { useMainStore, type ListFilters, type VerifiedFilter } from '@src/store';
 import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'motion/react';
-import { useRateLimitedUnfollow } from '@src/hooks/useRateLimitedUnfollow';
-import { UserX, X } from 'lucide-react';
 
 interface Props {
   users: User[] | null;
   lastScanNote?: ReactNode;
+  /** A small action shown on the right of the "last scan" line. */
+  secondaryAction?: ReactNode;
 }
 
-const verifiedFilterByTab: Record<Tab, boolean | undefined> = {
-  all: undefined,
-  normal: false,
-  verified: true,
-};
-
-export default function UserList({ users, lastScanNote }: Props) {
-  const tab = useMainStore(useShallow(state => state.selectedTab));
-  const setSelectedTab = useMainStore(useShallow(state => state.setSelectedTab));
+export default function UserList({ users, lastScanNote, secondaryAction }: Props) {
   const { t } = useTranslation();
 
   if (!users) return;
 
+  const meta = (
+    <div className="flex min-h-8 items-center justify-between gap-2">
+      <div className="min-w-0 truncate">{lastScanNote}</div>
+      {secondaryAction}
+    </div>
+  );
+
   if (users.length === 0) {
     return (
-      <div className="grid min-h-44 w-full justify-items-center gap-2">
-        {lastScanNote}
-        <Smiley className="aspect-square size-28 max-w-full" />
-        <p className="text-center text-lg font-semibold">
-          <span className="text-2xl">{t('awesome')}</span>
-          <br /> {t('noUnfollowersMessage')}
-        </p>
+      <div className="mt-2 grid w-full gap-2">
+        {meta}
+        <div className="grid min-h-44 justify-items-center gap-2">
+          <Smiley className="aspect-square size-28 max-w-full" />
+          <p className="text-center text-lg font-semibold">
+            <span className="text-2xl">{t('awesome')}</span>
+            <br /> {t('noUnfollowersMessage')}
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mt-3 grid w-full gap-y-3">
-      <Tabs value={tab} onValueChange={value => setSelectedTab(value as Tab)} className="w-full">
-        {/* Wide panels fit both on one row, so the note moves from above the tabs to their right. */}
-        <div className="flex flex-col items-center gap-2 wide:flex-row-reverse wide:justify-between">
-          {lastScanNote}
-          <TabsList className="grid w-fit grid-cols-[auto_auto_auto] gap-x-1">
-            <TabsTrigger className="h-full" value="all">
-              {t('allAccounts')}
-            </TabsTrigger>
-            <TabsTrigger className="h-full" value="verified">
-              {t('verifiedAccounts')}
-            </TabsTrigger>
-            <TabsTrigger className="h-full" value="normal">
-              {t('normalAccounts')}
-            </TabsTrigger>
-          </TabsList>
-        </div>
-        <TabsContent value="all">
-          <Filtered users={users} type="all" />
-        </TabsContent>
-        <TabsContent value="normal">
-          <Filtered users={users} type="normal" />
-        </TabsContent>
-        <TabsContent value="verified">
-          <Filtered users={users} type="verified" />
-        </TabsContent>
-      </Tabs>
+    <div className="mt-2 grid w-full grid-cols-[minmax(0,1fr)] gap-y-2">
+      {meta}
+      <Filtered users={users} />
     </div>
   );
 }
 
 interface FilteredProps {
   users: User[];
-  type: Tab;
 }
 
-function WithoutMemoFiltered({ type, users }: FilteredProps) {
+function applyFilters(users: readonly User[], filters: ListFilters, hiddenIds: Record<string, true>, query: string) {
+  return users.filter(user => {
+    if (Boolean(hiddenIds[user.id]) !== filters.showHidden) return false;
+    if (filters.verified === 'verified' && !user.isVerified) return false;
+    if (filters.verified === 'normal' && user.isVerified) return false;
+    if (filters.onlyPrivate && !user.isPrivate) return false;
+    if (filters.onlyNoAvatar && !user.hasNoAvatar) return false;
+    if (!query) return true;
+    return user.full_name.toLowerCase().includes(query) || user.username.toLowerCase().includes(query);
+  });
+}
+
+function Filtered({ users }: FilteredProps) {
   const { t, i18n } = useTranslation();
   const [search, setSearch] = useState('');
   // Deferring the search term keeps the input responsive and avoids re-running
   // the list enter/exit animation on every keystroke.
   const deferredSearch = useDeferredValue(search);
-  const onlyVerified = verifiedFilterByTab[type];
   const sortKey = useMainStore(state => resolveUserSortKey(state.sortKey));
+  const hiddenIds = useMainStore(state => state.hiddenIds);
+  const selectedIds = useMainStore(state => state.selectedIds);
+  const filters = useMainStore(state => state.filters);
+  const setSelected = useMainStore(state => state.setSelected);
+  const setHidden = useMainStore(state => state.setHidden);
+  const query = deferredSearch.trim().toLowerCase();
 
   const filteredUsers = useMemo(() => {
-    let _users = users;
-
-    if (typeof onlyVerified === 'boolean') {
-      _users = users.filter(user => user.isVerified === onlyVerified);
-    }
-
-    const query = deferredSearch.trim().toLowerCase();
-    if (query) {
-      _users = _users.filter(
-        user => user.full_name.toLowerCase().includes(query) || user.username.toLowerCase().includes(query),
-      );
-    }
-
+    const matching = applyFilters(users, filters, hiddenIds, query);
     try {
-      return sortUsers(_users, sortKey, i18n.language);
+      return sortUsers(matching, sortKey, i18n.language);
     } catch {
-      return _users;
+      return matching;
     }
-  }, [users, onlyVerified, deferredSearch, sortKey, i18n.language]);
+  }, [users, filters, hiddenIds, query, sortKey, i18n.language]);
 
-  const noResults = deferredSearch.trim().length > 0 && filteredUsers.length === 0;
+  const selectedUsers = useMemo(() => filteredUsers.filter(user => selectedIds[user.id]), [filteredUsers, selectedIds]);
+  const hiddenCount = useMemo(() => users.filter(user => hiddenIds[user.id]).length, [users, hiddenIds]);
+  // Checkboxes show only while something is selected; the hidden list has no selection.
+  const selectionMode = !filters.showHidden && selectedUsers.length > 0;
+
+  const toggleSelect = useCallback((id: string, selected: boolean) => setSelected([id], selected), [setSelected]);
+  const toggleHidden = useCallback((id: string, hidden: boolean) => setHidden([id], hidden), [setHidden]);
+
+  const noResults = filteredUsers.length === 0;
 
   return (
     <>
-      <BulkUnfollowBar users={filteredUsers} />
-      <div className="mb-2 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <Input
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -142,6 +113,14 @@ function WithoutMemoFiltered({ type, users }: FilteredProps) {
         />
         <SortMenu />
       </div>
+      <FilterChips hiddenCount={hiddenCount} />
+      {filters.showHidden && <p className="text-xs text-muted-foreground">{t('hiddenNote')}</p>}
+      <BulkActions
+        visible={filteredUsers}
+        selected={selectedUsers}
+        hiddenMode={filters.showHidden}
+        selectionMode={selectionMode}
+      />
       <List className="grid">
         <AnimatePresence mode="popLayout" initial={false}>
           {noResults && (
@@ -173,6 +152,11 @@ function WithoutMemoFiltered({ type, users }: FilteredProps) {
             >
               <ListItem
                 user={user}
+                isSelected={Boolean(selectedIds[user.id])}
+                isHidden={Boolean(hiddenIds[user.id])}
+                selectionMode={selectionMode}
+                onToggleSelect={toggleSelect}
+                onToggleHidden={toggleHidden}
                 className="rounded border p-2 shadow-md transition-transform duration-150 ease-out hover:scale-[1.01]"
               />
             </motion.div>
@@ -183,68 +167,60 @@ function WithoutMemoFiltered({ type, users }: FilteredProps) {
   );
 }
 
-const Filtered = React.memo(WithoutMemoFiltered, (prev: FilteredProps, next: FilteredProps) => {
-  return isEqual(prev.users, next.users) && prev.type === next.type;
-});
+interface Chip {
+  id: string;
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+}
 
-function BulkUnfollowBar({ users }: { users: User[] }) {
+/** Every list filter in one row of toggles. "Verified" and "Not verified" exclude each other. */
+function FilterChips({ hiddenCount }: { hiddenCount: number }) {
   const { t } = useTranslation();
-  const hasInstagramTab = useMainStore(useShallow(state => state.hasInstagramTab));
-  const blockedUntil = useMainStore(useShallow(state => state.blockedUntil));
-  const { startBulk, cancelBulk, bulkState } = useRateLimitedUnfollow();
+  const filters = useMainStore(state => state.filters);
+  const setFilters = useMainStore(state => state.setFilters);
 
-  const isBlocked = typeof blockedUntil === 'number' && blockedUntil > Date.now();
+  const verifiedChip = (value: Exclude<VerifiedFilter, 'any'>, label: string): Chip => ({
+    id: value,
+    label,
+    active: filters.verified === value,
+    onToggle: () => setFilters({ verified: filters.verified === value ? 'any' : value }),
+  });
+  const toggleChip = (key: 'onlyPrivate' | 'onlyNoAvatar' | 'showHidden', label: string): Chip => ({
+    id: key,
+    label,
+    active: filters[key],
+    onToggle: () => setFilters({ [key]: !filters[key] }),
+  });
 
-  if (!hasInstagramTab) return null;
-
-  if (bulkState) {
-    const percent = bulkState.total > 0 ? Math.round((bulkState.done / bulkState.total) * 100) : 0;
-    return (
-      <div className="mb-2 flex items-center gap-2 rounded border bg-muted/40 p-2">
-        <Spinner className="size-4 shrink-0" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">
-            {t('bulkUnfollowing', { done: bulkState.done, total: bulkState.total })}
-          </p>
-          <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-primary transition-[width] duration-300"
-              style={{ width: `${percent}%` }}
-            />
-          </div>
-        </div>
-        <Button variant="outline" size="sm" className="shrink-0" onClick={cancelBulk}>
-          <X className="size-3" />
-          {t('cancel')}
-        </Button>
-      </div>
-    );
-  }
+  const chips: Chip[] = [
+    verifiedChip('verified', t('filterVerified')),
+    verifiedChip('normal', t('filterNotVerified')),
+    toggleChip('onlyPrivate', t('filterPrivate')),
+    toggleChip('onlyNoAvatar', t('filterNoAvatar')),
+    ...(hiddenCount > 0 || filters.showHidden
+      ? [toggleChip('showHidden', t('filterHidden', { count: hiddenCount }))]
+      : []),
+  ];
 
   return (
-    <AlertDialog>
-      <AlertDialogTrigger
-        disabled={isBlocked || users.length === 0}
-        render={<Button variant="outline" size="sm" className="mb-2 w-full justify-center" />}
-      >
-        <UserX className="size-3" />
-        {t('unfollowAll', { count: users.length })}
-      </AlertDialogTrigger>
-      <AlertDialogPopup>
-        <AlertDialogHeader>
-          <div className="mx-auto flex size-12 items-center justify-center rounded-xl bg-destructive/10 text-destructive ring-1 ring-inset ring-destructive/20">
-            <UserX className="size-6" strokeWidth={1.75} />
-          </div>
-          <AlertDialogTitle>{t('unfollowAllTitle')}</AlertDialogTitle>
-          <AlertDialogDescription>{t('unfollowAllDescription', { count: users.length })}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogClose render={<Button variant="outline" />}>{t('cancel')}</AlertDialogClose>
-          <AlertDialogClose render={<Button variant="destructive" />} onClick={() => startBulk(users)}>
-            {t('unfollowAllAction')}
-          </AlertDialogClose>
-        </AlertDialogFooter>
-      </AlertDialogPopup>
-    </AlertDialog>
+    <div className="flex flex-wrap gap-1.5" role="group">
+      {chips.map(chip => (
+        <button
+          key={chip.id}
+          type="button"
+          aria-pressed={chip.active}
+          onClick={chip.onToggle}
+          className={cn(
+            'rounded-full border px-2.5 py-1 text-xs transition-colors',
+            chip.active
+              ? 'border-primary bg-primary text-primary-foreground'
+              : 'bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+          )}
+        >
+          {chip.label}
+        </button>
+      ))}
+    </div>
   );
 }

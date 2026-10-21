@@ -50,5 +50,21 @@
   "scanFailed": {
     "description": "Shown when Instagram returns an unexpected response during a scan",
     "message": "Instagram sent an unexpected response. Please refresh Instagram and try again."
+  },
+  "scanRateLimited": {
+    "description": "Shown when a scan stops because Instagram keeps rate-limiting it",
+    "message": "Instagram is limiting requests for this account, so the scan stopped and kept its progress. You were not signed out. Resume after the wait."
+  },
+  "scanBlocked": {
+    "description": "Shown when Instagram refuses list requests (checkpoint / spam flag)",
+    "message": "Instagram temporarily refused list requests for this account. The scan stopped and kept its progress. Wait a few hours before resuming."
+  },
+  "scanLimitedList": {
+    "description": "Shown when Instagram limits the following or followers list",
+    "message": "Instagram is limiting this list right now, so no result can be confirmed. The scan stopped and kept its progress. Wait a few hours before resuming."
+  },
+  "scanEmptyPages": {
+    "description": "Shown when Instagram keeps sending empty pages",
+    "message": "Instagram kept sending empty pages, so the scan stopped and kept its progress. Wait a few hours before resuming, or use the data file instead."
   }
 }

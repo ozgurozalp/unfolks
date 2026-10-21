@@ -45,7 +45,7 @@ export default function SortMenu() {
         }
       >
         <ArrowDownUp className="size-3.5" />
-        <Select.Value className="max-w-[8.5rem] truncate">
+        <Select.Value className="max-w-20 truncate roomy:max-w-[8.5rem]">
           {(value: UserSortKey | null) => t(SORT_LABEL_KEYS[resolveUserSortKey(value)])}
         </Select.Value>
         <Select.Icon>
@@ -61,8 +61,8 @@ export default function SortMenu() {
           sideOffset={6}
           collisionPadding={8}
         >
-          <Select.Popup className="max-h-[min(20rem,var(--available-height))] min-w-52 origin-[var(--transform-origin)] overflow-hidden overscroll-contain rounded-lg border bg-background p-1.5 text-foreground shadow-lg outline-none transition-[opacity,transform] duration-150 ease-out data-[ending-style]:scale-95 data-[starting-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
-            <Select.List className="max-h-[calc(min(20rem,var(--available-height))-0.75rem)] overflow-y-auto overscroll-contain outline-none">
+          <Select.Popup className="max-h-[min(30rem,var(--available-height))] min-w-52 origin-[var(--transform-origin)] overflow-hidden overscroll-contain rounded-lg border bg-background p-1.5 text-foreground shadow-lg outline-none transition-[opacity,transform] duration-150 ease-out data-[ending-style]:scale-95 data-[starting-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
+            <Select.List className="max-h-[calc(min(30rem,var(--available-height))-0.75rem)] overflow-y-auto overscroll-contain outline-none">
               {USER_SORT_GROUPS.map((group, index) => (
                 <Select.Group key={group.id}>
                   {index > 0 && <Select.Separator className="m-1 h-px bg-border" />}

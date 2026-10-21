@@ -14,10 +14,13 @@ import { useEffect, useRef, useState } from 'react';
 import UserList from '@src/components/UserList';
 import ProfileCard from '@src/components/ProfileCard';
 import Onboarding from '@src/components/Onboarding';
-import AnnouncementDialog from '@src/components/AnnouncementDialog';
+import ScanStatus from '@src/components/ScanStatus';
+import SettingsDialog from '@src/components/SettingsDialog';
+import ExportView from '@src/components/ExportView';
 import { useMainStore } from '@src/store';
 import { useRateLimitedUnfollow } from '@src/hooks/useRateLimitedUnfollow';
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import formatDuration from '@src/helpers/formatDuration';
+import { AlertTriangle, FileArchive, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import sendMessage from '@src/helpers/sendMessage';
@@ -25,15 +28,6 @@ import { formatDistanceToNow } from 'date-fns';
 import { enUS, tr } from 'date-fns/locale';
 
 const DEFAULT_COOLDOWN_MS = 15 * 60 * 1000;
-
-function formatDuration(ms: number) {
-  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
-}
 
 function Popup() {
   const { t, i18n } = useTranslation();
@@ -49,7 +43,16 @@ function Popup() {
     setBlockedUntil,
     viewer,
     setViewer,
+    checkpoint,
+    setCheckpoint,
+    setScanIssue,
+    scanSpeed,
+    clearSelection,
+    setScanning,
+    noteUnfollowResult,
   } = useMainStore();
+  const [view, setView] = useState<'main' | 'export'>('main');
+  const [tabHidden, setTabHidden] = useState(false);
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
@@ -57,12 +60,27 @@ function Popup() {
   const { cancelBulk } = useRateLimitedUnfollow();
 
   const isBlocked = typeof blockedUntil === 'number' && blockedUntil > now;
+  // After Instagram pushed back, no scan may start until the wait is over.
+  const scanWaitMs =
+    checkpoint && (!viewer || viewer.id === checkpoint.viewerId) && checkpoint.cooldownUntil > now
+      ? checkpoint.cooldownUntil - now
+      : 0;
+
+  const stopLoading = () => {
+    setLoading(false);
+    setProgress(null);
+    setRetryUntil(null);
+    setTabHidden(false);
+  };
 
   // Ticking clock to drive the cooldown countdown and the "last scan" label.
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Rows and the bulk bar read this to hold unfollows while a scan runs.
+  useEffect(() => setScanning(loading), [loading, setScanning]);
 
   // Clearing an expired cooldown re-renders the memoized list, whose buttons
   // would otherwise stay disabled after the countdown reaches zero.
@@ -108,10 +126,27 @@ function Popup() {
         }
 
         setUnfollowers(newUsers);
+        clearSelection();
+        setCheckpoint(null);
+        setScanIssue(null);
         if (request.viewer) setViewer(request.viewer);
-        setLoading(false);
-        setProgress(null);
-        setRetryUntil(null);
+        stopLoading();
+        break;
+      }
+      case TYPES.SCAN_STOPPED: {
+        stopLoading();
+        setCheckpoint(request.checkpoint ?? null);
+        // A block on list requests usually covers unfollows too.
+        if (request.stopReason === 'blocked' && request.checkpoint?.cooldownUntil) {
+          setBlockedUntil(request.checkpoint.cooldownUntil);
+        }
+        const message = request.errorMessage || t('notConnected');
+        setScanIssue({ message, detail: request.errorDetail });
+        toast.error(message, { id: 'scan-stopped', position: 'bottom-center', duration: 8000 });
+        break;
+      }
+      case TYPES.CHECKPOINT_INFO: {
+        setCheckpoint(request.checkpoint ?? null);
         break;
       }
       case TYPES.PROGRESS: {
@@ -124,10 +159,12 @@ function Popup() {
         } else {
           setRetryUntil(null);
         }
+        setTabHidden(Boolean(request.tabHidden));
         break;
       }
       case TYPES.UNFOLLOWED: {
         if (request.status && request.deletedId) {
+          noteUnfollowResult(true);
           removeUnfollower(request.deletedId);
         } else if (request.deletedId) {
           changeUserLoading(request.deletedId, false);
@@ -135,10 +172,11 @@ function Popup() {
         break;
       }
       case TYPES.AUTH_ERROR: {
-        if (request.deletedId) changeUserLoading(request.deletedId, false);
-        setLoading(false);
-        setProgress(null);
-        setRetryUntil(null);
+        if (request.deletedId) {
+          changeUserLoading(request.deletedId, false);
+          noteUnfollowResult(false, true);
+        }
+        stopLoading();
         toast.error(request.errorMessage || t('authError'), {
           id: 'auth-error',
           position: 'bottom-center',
@@ -157,10 +195,15 @@ function Popup() {
         break;
       }
       case TYPES.ERROR: {
-        if (request.deletedId) changeUserLoading(request.deletedId, false);
-        setLoading(false);
-        setProgress(null);
-        setRetryUntil(null);
+        if (request.deletedId) {
+          changeUserLoading(request.deletedId, false);
+          noteUnfollowResult(false);
+        }
+        // A failed scan (not a failed unfollow) keeps its detail line for bug reports.
+        if (!request.deletedId) {
+          stopLoading();
+          setScanIssue({ message: request.errorMessage || t('notConnected'), detail: request.errorDetail });
+        }
         toast.error(request.errorMessage || t('notConnected'), {
           id: 'connection-error',
           position: 'bottom-center',
@@ -209,6 +252,7 @@ function Popup() {
     const syncInstagram = () => {
       sendMessage({ type: TYPES.GET_VIEWER_DATA }).catch(console.error);
       sendMessage({ type: TYPES.GET_SCAN_STATE }).catch(console.error);
+      sendMessage({ type: TYPES.GET_CHECKPOINT }).catch(console.error);
     };
     syncInstagram();
     const retryIds = [400, 1200].map(ms => window.setTimeout(syncInstagram, ms));
@@ -216,8 +260,8 @@ function Popup() {
     return () => retryIds.forEach(id => window.clearTimeout(id));
   }, [hasInstagramTab]);
 
-  const getPeople = async () => {
-    if (loading) return;
+  const getPeople = async (resume = false) => {
+    if (loading || scanWaitMs > 0) return;
 
     if (!hasInstagramTab) {
       chrome.tabs.create({ url: 'https://www.instagram.com/', active: true }).catch(console.error);
@@ -228,23 +272,31 @@ function Popup() {
       setLoading(true);
       setProgress(null);
       setRetryUntil(null);
-      await sendMessage({ type: TYPES.GET_PEOPLE });
+      setScanIssue(null);
+      await sendMessage({ type: TYPES.GET_PEOPLE, resume, scanSpeed });
     } catch {
       toast.error(t('notConnected'), {
         id: 'get-people-error',
         position: 'bottom-center',
       });
-      setLoading(false);
-      setProgress(null);
-      setRetryUntil(null);
+      stopLoading();
     }
+  };
+
+  const discardCheckpoint = () => {
+    setCheckpoint(null);
+    setScanIssue(null);
   };
 
   const progressPercent =
     progress && progress.total > 0 ? Math.min(99, Math.round((progress.current / progress.total) * 100)) : null;
   const retrySeconds = retryUntil && retryUntil > now ? Math.ceil((retryUntil - now) / 1000) : null;
 
-  const idleButtonText = unfollowers ? t('refresh') : t('showUnfollowers');
+  const idleButtonText = scanWaitMs
+    ? t('scanCooldownButton', { time: formatDuration(scanWaitMs) })
+    : unfollowers
+      ? t('refresh')
+      : t('showUnfollowers');
   const buttonText = loading
     ? retrySeconds
       ? t('scanningWaiting', { seconds: retrySeconds })
@@ -257,7 +309,7 @@ function Popup() {
   const firstTime = unfollowers === null;
 
   const lastScanNote = lastScannedAt ? (
-    <p className="text-xs leading-none text-muted-foreground">
+    <p className="truncate text-xs leading-none text-muted-foreground">
       {t('lastScanned', {
         time: formatDistanceToNow(lastScannedAt, {
           addSuffix: true,
@@ -275,6 +327,7 @@ function Popup() {
         t('scanningCount', { count: 88888 }),
         t('scanningPercent', { percent: 88 }),
         t('scanningWaiting', { seconds: 60 }),
+        t('scanCooldownButton', { time: '0:00:00' }),
       ]
     : [visibleButtonText];
 
@@ -282,8 +335,8 @@ function Popup() {
     <Button
       className={cn('h-10 max-h-10 min-h-10 shrink-0 justify-center leading-none tabular-nums', className)}
       variant="outline"
-      disabled={loading}
-      onClick={getPeople}
+      disabled={loading || scanWaitMs > 0}
+      onClick={() => getPeople(false)}
     >
       <span className="inline-grid justify-items-center">
         {buttonWidthLocks.map((label, index) => (
@@ -304,6 +357,24 @@ function Popup() {
     </Button>
   );
 
+  if (view === 'export') {
+    return (
+      <>
+        <div className="app h-full py-4">
+          <ExportView onBack={() => setView('main')} />
+        </div>
+        <Toaster richColors />
+      </>
+    );
+  }
+
+  const exportLink = (
+    <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={() => setView('export')}>
+      <FileArchive className="size-4" />
+      {t('exportOpen')}
+    </Button>
+  );
+
   return (
     <>
       <div
@@ -318,11 +389,34 @@ function Popup() {
             hasInstagramTab={hasInstagramTab}
             idleButtonText={idleButtonText}
             loading={loading}
-            action={renderRefreshButton('w-full')}
+            action={
+              <div className="grid gap-2">
+                {renderRefreshButton('w-full')}
+                {!loading && (
+                  <div className="flex flex-wrap items-center justify-center gap-1">
+                    {exportLink}
+                    <SettingsDialog showLabel className="text-muted-foreground" />
+                  </div>
+                )}
+                {!loading && <p className="text-xs text-muted-foreground">{t('exportOpenHint')}</p>}
+              </div>
+            }
           />
         ) : (
-          <ProfileCard action={renderRefreshButton()} viewer={viewer} />
+          <>
+            <ProfileCard
+              action={
+                <div className="flex items-center gap-2">
+                  <SettingsDialog />
+                  {renderRefreshButton('min-w-0 flex-1 roomy:flex-none')}
+                </div>
+              }
+              viewer={viewer}
+            />
+          </>
         )}
+
+        <ScanStatus loading={loading} onResume={() => getPeople(true)} onDiscard={discardCheckpoint} />
 
         {loading && (
           <div className="mt-2">
@@ -348,6 +442,9 @@ function Popup() {
                 {retrySeconds ? t('scanRateLimit', { seconds: retrySeconds }) : t('scanningInfo')}
               </p>
             )}
+            {tabHidden && (
+              <p className="mt-1 text-balance text-center text-xs font-medium text-amber-600">{t('tabHiddenHint')}</p>
+            )}
           </div>
         )}
 
@@ -363,9 +460,24 @@ function Popup() {
           </div>
         )}
 
-        <UserList users={unfollowers} lastScanNote={lastScanNote} />
+        <UserList
+          users={unfollowers}
+          lastScanNote={lastScanNote}
+          secondaryAction={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
+              title={t('exportOpenHint')}
+              onClick={() => setView('export')}
+            >
+              <FileArchive className="size-3.5" />
+              <span className="roomy:hidden">{t('exportOpenShort')}</span>
+              <span className="hidden roomy:inline">{t('exportOpen')}</span>
+            </Button>
+          }
+        />
       </div>
-      {unfollowers && unfollowers.length > 0 && <AnnouncementDialog />}
       <Toaster richColors />
     </>
   );

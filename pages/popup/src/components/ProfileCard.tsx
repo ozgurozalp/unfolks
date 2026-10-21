@@ -9,8 +9,8 @@ interface ProfileCardProps {
 
 export default function ProfileCard({ viewer, action }: ProfileCardProps) {
   return (
-    <div className="flex w-full items-center justify-between gap-4 border-b pb-4">
-      <div className="flex items-center gap-3">
+    <div className="flex w-full flex-col gap-3 border-b pb-4 roomy:flex-row roomy:items-center roomy:justify-between roomy:gap-4">
+      <div className="flex min-w-0 items-center gap-3">
         {viewer && (
           <>
             <Avatar className="size-10 shrink-0">
@@ -31,7 +31,7 @@ export default function ProfileCard({ viewer, action }: ProfileCardProps) {
           </>
         )}
       </div>
-      {action ? <div className="shrink-0">{action}</div> : null}
+      {action ? <div className="w-full roomy:w-auto roomy:shrink-0">{action}</div> : null}
     </div>
   );
 }
