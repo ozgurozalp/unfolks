@@ -16,16 +16,18 @@ import {
   type UserSortKey,
 } from '@extension/shared';
 
-export type Tab = 'all' | 'normal' | 'verified';
+/** Verified filter: everyone, only verified accounts, or only accounts without the badge. */
+export type VerifiedFilter = 'any' | 'verified' | 'normal';
 
 export interface ListFilters {
+  verified: VerifiedFilter;
   onlyPrivate: boolean;
   onlyNoAvatar: boolean;
   /** Show the hidden accounts instead of the visible ones. */
   showHidden: boolean;
 }
 
-const DEFAULT_FILTERS: ListFilters = { onlyPrivate: false, onlyNoAvatar: false, showHidden: false };
+const DEFAULT_FILTERS: ListFilters = { verified: 'any', onlyPrivate: false, onlyNoAvatar: false, showHidden: false };
 
 /** The last scan failure, with the one-line detail for bug reports. */
 export interface ScanIssue {
@@ -76,8 +78,6 @@ export interface MainStore {
   removeUnfollower: (id: string) => void;
   changeUserLoading: (id: string, loading: boolean) => void;
   setBlockedUntil: (blockedUntil: number | null) => void;
-  selectedTab: Tab;
-  setSelectedTab: (tab: Tab) => void;
   sortKey: UserSortKey;
   setSortKey: (sortKey: UserSortKey) => void;
   /** Accounts the user keeps; they never show in the list or in bulk unfollows. */
@@ -121,8 +121,6 @@ export const useMainStore = create<MainStore>()(
   devtools(
     persist(
       set => ({
-        selectedTab: 'all',
-        setSelectedTab: tab => set({ selectedTab: tab }),
         sortKey: readStoredSortKey(),
         setSortKey: sortKey => {
           const next = resolveUserSortKey(sortKey);

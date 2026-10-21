@@ -309,7 +309,7 @@ function Popup() {
   const firstTime = unfollowers === null;
 
   const lastScanNote = lastScannedAt ? (
-    <p className="text-xs leading-none text-muted-foreground">
+    <p className="truncate text-xs leading-none text-muted-foreground">
       {t('lastScanned', {
         time: formatDistanceToNow(lastScannedAt, {
           addSuffix: true,
@@ -413,7 +413,6 @@ function Popup() {
               }
               viewer={viewer}
             />
-            {!loading && <div className="mt-2 flex justify-end">{exportLink}</div>}
           </>
         )}
 
@@ -461,7 +460,23 @@ function Popup() {
           </div>
         )}
 
-        <UserList users={unfollowers} lastScanNote={lastScanNote} />
+        <UserList
+          users={unfollowers}
+          lastScanNote={lastScanNote}
+          secondaryAction={
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 gap-1.5 px-2 text-xs text-muted-foreground"
+              title={t('exportOpenHint')}
+              onClick={() => setView('export')}
+            >
+              <FileArchive className="size-3.5" />
+              <span className="roomy:hidden">{t('exportOpenShort')}</span>
+              <span className="hidden roomy:inline">{t('exportOpen')}</span>
+            </Button>
+          }
+        />
       </div>
       <Toaster richColors />
     </>

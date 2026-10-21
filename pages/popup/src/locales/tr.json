@@ -136,6 +136,12 @@
     "exportError_noFollowing": "Takip edilenler dosyası bulunamadı. “Takipçiler ve takip edilenler”in seçili olduğundan emin ol.",
     "exportError_parse": "Takipçi ya da takip dosyası okunamadı. Veriyi JSON biçiminde isteyip tekrar dene.",
     "exportError_unknown": "Dosyalar okunamadı.",
-    "bulkStoppedFailures": "Üst üste birkaç hata olduğu için takip bırakma durdu. Bir süre bekleyip tekrar dene."
+    "bulkStoppedFailures": "Üst üste birkaç hata olduğu için takip bırakma durdu. Bir süre bekleyip tekrar dene.",
+    "unfollowCount": "Bırak ({{count}})",
+    "filterVerified": "Onaylı",
+    "filterNotVerified": "Onaysız",
+    "accountsCount_one": "1 hesap",
+    "accountsCount_other": "{{count}} hesap",
+    "exportOpenShort": "Veri dosyası"
   }
 }

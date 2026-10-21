@@ -5,7 +5,7 @@ import { useMainStore } from '@src/store';
 import { Avatar, AvatarFallback, AvatarImage, Button, Checkbox, cn, Spinner } from '@extension/ui';
 import { useTranslation } from 'react-i18next';
 import { useRateLimitedUnfollow } from '@src/hooks/useRateLimitedUnfollow';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, UserMinus } from 'lucide-react';
 
 interface ListProps {
   children: ReactNode;
@@ -70,14 +70,14 @@ export const ListItem = React.memo(function ListItem({
         >
           <div className="inline-flex min-w-0 items-center gap-1 font-bold">
             {user.full_name && (
-              <p title={user.full_name} className="max-w-[20ch] truncate text-sm">
+              <p title={user.full_name} className="min-w-0 truncate text-sm">
                 {user.full_name}
               </p>
             )}
             {user.isVerified && user.full_name && <Verified />}
           </div>
           <div className="inline-flex min-w-0 items-center gap-1">
-            <p className="truncate text-muted-foreground">{user.username}</p>
+            <p className="min-w-0 truncate text-muted-foreground">{user.username}</p>
             {user.isVerified && !user.full_name && <Verified />}
           </div>
         </figcaption>
@@ -99,10 +99,13 @@ export const ListItem = React.memo(function ListItem({
               size="sm"
               disabled={user.unFollowLoading || isBlocked || scanning}
               onClick={() => unfollow(user)}
-              className="relative whitespace-nowrap"
+              className="relative w-9 whitespace-nowrap px-0 roomy:w-auto roomy:px-3"
+              title={t('unfollow')}
+              aria-label={t('unfollow')}
             >
               <Spinner className={cn('absolute inset-0 m-auto size-4', !user.unFollowLoading && 'hidden')} />
-              <span className={cn(user.unFollowLoading && 'opacity-10')}>{t('unfollow')}</span>
+              <UserMinus className={cn('size-4 roomy:hidden', user.unFollowLoading && 'opacity-10')} />
+              <span className={cn('hidden roomy:inline', user.unFollowLoading && 'opacity-10')}>{t('unfollow')}</span>
             </Button>
           )}
         </div>

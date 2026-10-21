@@ -136,6 +136,12 @@
     "exportError_noFollowing": "No following file found. Make sure “Followers and following” was included.",
     "exportError_parse": "A followers or following file could not be read. Request the data in JSON format and try again.",
     "exportError_unknown": "The files could not be read.",
-    "bulkStoppedFailures": "Unfollowing stopped after several failures in a row. Wait a while, then try again."
+    "bulkStoppedFailures": "Unfollowing stopped after several failures in a row. Wait a while, then try again.",
+    "unfollowCount": "Unfollow ({{count}})",
+    "filterVerified": "Verified",
+    "filterNotVerified": "Not verified",
+    "accountsCount_one": "1 account",
+    "accountsCount_other": "{{count}} accounts",
+    "exportOpenShort": "Data file"
   }
 }
