@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — Unfolks
 
-> Last Updated: 2026-10-03
+> Last Updated: 2026-10-21
 
 ## Store Listing
 
@@ -16,8 +16,14 @@ Unfolks shows which Instagram accounts you follow that do not follow you back, a
 FEATURES
 • Scan your following list to see who does not follow you back
 • Search, sort, and filter verified vs regular accounts
-• Unfollow one account at a time, or unfollow several with a pause between each action so Instagram is less likely to block you
+• Filter private accounts and accounts without a profile photo
+• Hide accounts you want to keep; hidden accounts are never unfollowed in bulk
+• Select accounts and unfollow only those, or copy their usernames
+• Unfollow one account at a time, or several with a wait between each and a longer rest every few accounts, so Instagram is less likely to block you
+• Choose the scan speed: fast, balanced, or careful
 • See scan progress as it runs, and a countdown when Instagram asks the extension to slow down
+• If Instagram stops a scan, resume it later from where it stopped
+• No-risk option: drop the file from Instagram's "Download your information" and see who doesn't follow you back without sending Instagram any request
 • Keeps the last scan on your computer so you can reopen the panel and continue, even mid-scan
 • Works in a side panel that stays open while you browse
 
@@ -77,7 +83,7 @@ English (Turkish locale included)
 
 | Permission | Type | Justification |
 |------------|------|---------------|
-| storage | permissions | Holds the latest account/scan message if Chrome stops background work before the side panel reconnects, so your name and list still appear when you reopen it. Scan results you keep between visits are stored on this computer only. |
+| storage | permissions | Holds the latest account/scan message if Chrome stops background work before the side panel reconnects, so your name and list still appear when you reopen it. Also keeps the progress of a scan that stopped partway (for up to 24 hours) so it can be resumed. Everything is stored on this computer only. |
 | sidePanel | permissions | Opens Unfolks beside the page so you can review unfollowers without covering Instagram. Chrome only. |
 | https://instagram.com/* | host_permissions | Reads your following/follower lists and sends unfollow requests on Instagram while you are signed in. Does not run on other sites. |
 | https://*.instagram.com/* | host_permissions | Same as above for www, m, and other Instagram subdomains. |

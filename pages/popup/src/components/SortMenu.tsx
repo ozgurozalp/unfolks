@@ -45,7 +45,7 @@ export default function SortMenu() {
         }
       >
         <ArrowDownUp className="size-3.5" />
-        <Select.Value className="max-w-[8.5rem] truncate">
+        <Select.Value className="max-w-[5rem] truncate roomy:max-w-[8.5rem]">
           {(value: UserSortKey | null) => t(SORT_LABEL_KEYS[resolveUserSortKey(value)])}
         </Select.Value>
         <Select.Icon>

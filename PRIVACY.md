@@ -1,6 +1,6 @@
 # Privacy Policy for Unfolks
 
-Last updated: 15 September 2026
+Last updated: 21 October 2026
 
 Unfolks is a browser extension that shows which Instagram accounts you follow that do not follow you back, and lets you unfollow them.
 
@@ -10,13 +10,15 @@ Unfolks reads information that Instagram already shows you while you are signed 
 
 - Your Instagram name, username, and profile photo URL
 - Accounts you follow, including names, usernames, photos, and whether they follow you back
-- Scan time, sort/filter choices, and a temporary pause if Instagram blocks unfollows
+- Scan time, sort/filter choices, speed settings, accounts you hide from the list, and a temporary pause if Instagram blocks unfollows or scans
+- The progress of a scan that stopped partway (the accounts loaded so far and which of them follow you back), so you can resume it
+- If you use the data file option: the followers and following files from your Instagram data download, which are read in the panel and not stored
 
 Unfolks does not collect your Instagram password. It uses the login session already in your Instagram tab.
 
 ## How Data Is Stored
 
-Scan results, profile info, and preferences stay on your computer in the extension’s local storage. A short-lived copy of the latest account or scan update may be kept until you close the browser so the side panel can reconnect if Chrome restarts background work.
+Scan results, profile info, hidden accounts, and preferences stay on your computer in the extension’s local storage. The progress of a stopped scan is kept in the extension’s local storage for up to 24 hours, then dropped. Files from your Instagram data download are compared in the panel and never uploaded or saved. A short-lived copy of the latest account or scan update may be kept until you close the browser so the side panel can reconnect if Chrome restarts background work.
 
 This data is not synced to other devices through the extension.
 
@@ -26,6 +28,8 @@ This data is not synced to other devices through the extension.
 - Show your name and photo in the panel
 - Unfollow accounts you choose
 - Space out unfollows and show a wait timer if Instagram temporarily blocks the action
+- Continue a scan that stopped partway, and wait before scanning again after Instagram limits requests
+- Compare your Instagram data download on your computer, when you choose that option
 
 ## Third-Party Services
 

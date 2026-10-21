@@ -1,3 +1,5 @@
+import type { ScanSpeed } from './pacing';
+
 export type ValueOf<T> = T[keyof T];
 
 export interface User {
@@ -13,6 +15,8 @@ export interface User {
   followIndex?: number;
   /** Account creation time in ms, when Instagram sends it. */
   accountCreatedAt?: number;
+  /** Instagram reports the default (blank) profile picture. */
+  hasNoAvatar?: boolean;
 }
 
 export type ProgressPhase = 'following' | 'followers';
@@ -23,11 +27,31 @@ export interface ScanProgress {
   total: number;
   /** Set while Instagram is rate-limiting the scan. The scan keeps waiting. */
   retryInMs?: number;
+  /** The Instagram tab is in the background, where Chrome slows timers down. */
+  tabHidden?: boolean;
+}
+
+/** Why a scan stopped before it finished. The progress so far is kept for Resume. */
+export type ScanStopReason = 'rate' | 'blocked' | 'gap' | 'limited' | 'auth' | 'error';
+
+/** What the panel needs to offer "Resume" for a scan that stopped partway. */
+export interface CheckpointSummary {
+  viewerId: string;
+  savedAt: number;
+  /** Accounts collected from the following list so far. */
+  loaded: number;
+  /** Following count Instagram reported, when known. */
+  total: number | null;
+  /** Resume sends no request before this time (ms). 0 when there is no wait. */
+  cooldownUntil: number;
+  stopReason?: ScanStopReason;
 }
 
 export type Request = {
   type: string;
   users?: User[];
+  /** UNFOLLOW and its replies: the account acted on. */
+  user?: User;
   deletedId?: string;
   status?: boolean;
   errorMessage?: string;
@@ -41,6 +65,17 @@ export type Request = {
   incomplete?: boolean;
   /** UNFOLLOW: the account the list was scanned with. */
   expectedViewer?: Pick<InstagramViewer, 'id' | 'username'>;
+  /** GET_PEOPLE: continue from the saved checkpoint instead of starting over. */
+  resume?: boolean;
+  /** GET_PEOPLE: how fast to page through Instagram's lists. */
+  scanSpeed?: ScanSpeed;
+  tabHidden?: boolean;
+  /** SCAN_STOPPED: why the scan stopped. */
+  stopReason?: ScanStopReason;
+  /** SCAN_STOPPED / ERROR: one line with version, position and what Instagram sent. */
+  errorDetail?: string;
+  /** SCAN_STOPPED / CHECKPOINT_INFO: the saved progress, or null when there is none. */
+  checkpoint?: CheckpointSummary | null;
 };
 
 export enum TYPES {
@@ -55,6 +90,10 @@ export enum TYPES {
   GET_VIEWER_DATA = 'GET_VIEWER_DATA',
   SET_VIEWER_DATA = 'SET_VIEWER_DATA',
   GET_SCAN_STATE = 'GET_SCAN_STATE',
+  SCAN_STOPPED = 'SCAN_STOPPED',
+  GET_CHECKPOINT = 'GET_CHECKPOINT',
+  CHECKPOINT_INFO = 'CHECKPOINT_INFO',
+  DISCARD_CHECKPOINT = 'DISCARD_CHECKPOINT',
 }
 
 export interface InstagramSharedData {

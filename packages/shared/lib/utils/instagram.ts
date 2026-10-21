@@ -1,46 +1,40 @@
-import type { InstagramSharedData, ScanProgress, User } from '.';
+import type { InstagramSharedData, ScanProgress, ScanStopReason, User } from '.';
 import { t } from '@extension/i18n';
 import {
+  classifyIgFailure,
+  compactFriendshipUser,
   computeUnfollowers,
   dedupeFriendshipUsers,
   extractGraphqlTokens,
   followersPageOutcome,
+  followersWalkLooksComplete,
   getFriendshipUserId,
+  graphqlErrorMessage,
+  graphqlUnfollowOutcome,
   indexFollowBackAliases,
   inlineFollowBackIds,
-  isActionBlocked,
   isGraphqlUnfollowBlocked,
-  isGraphqlUnfollowSuccess,
   isRetryableIgFail,
   jazoestFromDtsg,
   mapFollowingToUsers,
   matchCanonicalFollowBack,
+  MAX_EMPTY_PAGES,
+  nextPageStep,
   randomBetween,
   readShowManyFollowedBy,
   shouldPreferShowMany,
-  shouldStopPaging,
   showManyReportsFollowedBy,
   UNFOLLOW_DOC_ID,
   UNFOLLOW_FRIENDLY_NAME,
   usersUnconfirmedFollowBack,
   type FriendshipUser,
   type GraphqlTokens,
-  type UnfollowResponse,
 } from './instagram-utils';
+import { SCAN_PACING, type ScanPacing } from './pacing';
+import { createCheckpoint, SCAN_COOLDOWN_MS, type ScanCheckpoint } from './scan-checkpoint';
 
 const IG_WEB_APP_ID = '936619743392459';
 const FRIENDSHIP_PAGE_SIZE = 200;
-/**
- * The web list often ignores `count` and returns ~12–23 people, so a 230-follow
- * account is ~15 pages. Long pauses belong on big scans; 429 backoff covers bursts.
- */
-const SCAN_FAST_PAGES = 12;
-const SCAN_FAST_DELAY_MIN_MS = 60;
-const SCAN_FAST_DELAY_MAX_MS = 140;
-const SCAN_DELAY_MIN_MS = 180;
-const SCAN_DELAY_MAX_MS = 320;
-const SCAN_PAUSE_EVERY_PAGES = 25;
-const SCAN_PAUSE_MS = 1200;
 /** `show_many` accepts about 100 ids. One POST replaces that many `show/{id}` calls. */
 const SHOW_MANY_BATCH = 100;
 const SHOW_MANY_GAP_MIN_MS = 40;
@@ -49,11 +43,21 @@ const SHOW_MANY_GAP_MAX_MS = 120;
 const FOLLOWERS_PAGE_SIZE = 23;
 /** About a thousand followers. Cheaper to intersect the list than to call show_many. */
 const CHEAP_FOLLOWER_PAGES = 40;
+/** Retries for 5xx and transient `status: fail` bodies. */
 const MAX_RETRIES = 3;
-/** 429s are waited out instead of failing the scan. Each wait is capped. */
-const MAX_RATE_RETRIES = 8;
+/**
+ * A rate limit is waited out a few times (about two minutes in total), then
+ * the scan stops and keeps its progress. Pushing on is how accounts get flagged.
+ */
+const MAX_RATE_RETRIES = 4;
 const MAX_RATE_WAIT_MS = 60_000;
 const BACKOFF_BASE_MS = 2000;
+/** After failing to read session tokens, wait this long before fetching the home page again. */
+const TOKEN_RETRY_MS = 60_000;
+/** Saved "does not follow back" answers older than this are asked again on Resume. */
+const STALE_ANSWER_MS = 30 * 60 * 1000;
+/** The checkpoint is handed out at most this often while a scan runs. */
+const CHECKPOINT_EMIT_MS = 4000;
 /** Local cooldown enforced after Instagram soft-blocks an action. */
 export const ACTION_BLOCK_COOLDOWN_MS = 15 * 60 * 1000;
 
@@ -62,20 +66,32 @@ type ProgressCallback = (progress: ScanProgress) => void;
 interface FriendshipsPage {
   users?: FriendshipUser[];
   next_max_id?: string | null;
+  has_more?: boolean;
+  should_limit_list_of_followers?: boolean;
+  should_limit_list_of_followings?: boolean;
   status?: string;
   message?: string;
 }
 
-interface FollowBackResult {
-  ids: Set<string>;
-  /** Some accounts could not be checked and were assumed to follow back. */
+export interface ScanResult {
+  users: User[];
+  /** Accounts that could not be verified were left out of `users`, or the following list ended early. */
   incomplete: boolean;
 }
 
-export interface ScanResult {
-  users: User[];
-  /** Accounts that could not be verified were left out of `users`. */
-  incomplete: boolean;
+export interface ScanOptions {
+  pacing?: ScanPacing;
+  /** Continue from this saved progress instead of starting over. */
+  resume?: ScanCheckpoint | null;
+  onProgress?: ProgressCallback;
+  /** Receives the latest progress every few seconds while the scan runs. */
+  onCheckpoint?: (checkpoint: ScanCheckpoint) => void;
+}
+
+/** The last thing Instagram answered when a request failed, for the error line. */
+export interface LastHttpFailure {
+  status: number;
+  message: string;
 }
 
 interface ProfileCounts {
@@ -99,6 +115,23 @@ export class ActionBlockedError extends Error {
   }
 }
 
+/** Instagram pushed back; the scan stops and keeps its progress for Resume. */
+export class ScanStoppedError extends Error {
+  reason: ScanStopReason;
+  cooldownMs: number;
+  constructor(reason: ScanStopReason, message: string) {
+    super(message);
+    this.name = 'ScanStoppedError';
+    this.reason = reason;
+    this.cooldownMs = SCAN_COOLDOWN_MS[reason];
+  }
+}
+
+/** The unfollow block, with the time left on it. */
+export function actionBlockedError(cooldownMs: number): ActionBlockedError {
+  return new ActionBlockedError(t('actionBlocked'), cooldownMs);
+}
+
 /** The panel's list was scanned with a different account than the one logged in here. */
 export class AccountMismatchError extends Error {
   constructor() {
@@ -107,105 +140,255 @@ export class AccountMismatchError extends Error {
   }
 }
 
+export function scanStopMessage(reason: ScanStopReason): string {
+  if (reason === 'rate') return t('scanRateLimited');
+  if (reason === 'blocked') return t('scanBlocked');
+  if (reason === 'limited') return t('scanLimitedList');
+  if (reason === 'gap') return t('scanEmptyPages');
+  return t('scanFailed');
+}
+
 export class Instagram {
   sharedData: InstagramSharedData;
-  followings: User[] = [];
-  private followBackIncomplete = false;
+  /** The scan's progress; read it after a failure to save it for Resume. */
+  checkpoint: ScanCheckpoint | null = null;
+  lastHttp: LastHttpFailure | null = null;
+  private pacing: ScanPacing = SCAN_PACING.fast;
   private graphqlTokens: GraphqlTokens | null | undefined;
+  /** When reading tokens last failed; the home page is not fetched again for a minute. */
+  private graphqlTokensMissAt = 0;
   private scanProgress?: ProgressCallback;
+  private emitCheckpoint?: (checkpoint: ScanCheckpoint) => void;
+  private lastCheckpointEmit = 0;
   private lastProgress: ScanProgress | null = null;
 
   constructor(sharedData: InstagramSharedData) {
     this.sharedData = sharedData;
   }
 
-  async getPeople(onProgress?: ProgressCallback): Promise<ScanResult> {
-    this.scanProgress = onProgress;
+  get viewerId(): string {
+    return this.sharedData.config.viewerId;
+  }
+
+  get progress(): ScanProgress | null {
+    return this.lastProgress;
+  }
+
+  async getPeople(options: ScanOptions = {}): Promise<ScanResult> {
+    this.pacing = options.pacing ?? SCAN_PACING.fast;
+    this.scanProgress = progress => {
+      this.lastProgress = progress;
+      options.onProgress?.(progress);
+    };
+    this.emitCheckpoint = options.onCheckpoint;
     this.lastProgress = null;
-    this.clearStorage();
+    this.lastHttp = null;
+    this.checkpoint = options.resume ? this.prepareResume(options.resume) : createCheckpoint(this.viewerId, Date.now());
+
     try {
-      await this.getFollowing(progress => {
-        this.lastProgress = progress;
-        onProgress?.(progress);
-      });
-      return { users: this.getUnFollowers(), incomplete: this.followBackIncomplete };
+      await this.collectFollowing();
+      return await this.resolveFollowBack();
     } finally {
       this.scanProgress = undefined;
+      this.emitCheckpoint = undefined;
     }
   }
 
-  async unFollow(user: User) {
-    const graphql = await this.unFollowViaGraphql(user);
-    if (graphql === 'ok') return { status: true, deletedId: user.id };
-    if (graphql === 'blocked') throw new ActionBlockedError(t('actionBlocked'));
+  /**
+   * Someone may have followed back while the scan waited, so old "does not
+   * follow back" answers are asked again. Old "follows back" answers stay:
+   * at worst they hide a non-follower, never list a follower.
+   */
+  private prepareResume(resume: ScanCheckpoint): ScanCheckpoint {
+    const stale = Date.now() - resume.savedAt > STALE_ANSWER_MS;
+    return {
+      ...resume,
+      followingEmptyRun: 0,
+      cooldownUntil: 0,
+      stopReason: undefined,
+      notFollowBackIds: stale ? [] : resume.notFollowBackIds,
+    };
+  }
 
-    const paths = [`/api/v1/web/friendships/${user.id}/unfollow/`, `/web/friendships/${user.id}/unfollow/`];
-    let blocked = false;
+  async unFollow(user: User): Promise<{ status: true; deletedId: string }> {
+    const outcome = await this.unFollowViaGraphql(user);
+    if (outcome === 'blocked') throw new ActionBlockedError(t('actionBlocked'));
+    if (outcome === 'confirmed') return { status: true, deletedId: user.id };
 
-    for (const path of paths) {
-      const response = await this.postForm(path, { user_id: user.id, container_module: 'profile' });
-
-      let data: UnfollowResponse = {};
-      try {
-        data = (await response.json()) as UnfollowResponse;
-      } catch {
-        // Some endpoints return an empty/non-JSON body on success.
-      }
-
-      if (data.status === 'ok' || data.friendship_status?.following === false) {
-        return { status: true, deletedId: user.id };
-      }
-
-      if (isActionBlocked(response.status, data)) {
-        blocked = true;
-        break;
-      }
+    if (outcome === 'unconfirmed') {
+      // Instagram said ok without saying the follow is gone. Look it up; an
+      // unknown is never counted as a success.
+      const stillFollowing = await this.isStillFollowing(user);
+      if (stillFollowing === false) return { status: true, deletedId: user.id };
     }
 
-    if (blocked) throw new ActionBlockedError(t('actionBlocked'));
     throw new Error(t('unfollowFailed'));
   }
 
-  async getFollowing(onProgress?: ProgressCallback): Promise<void> {
-    const counts = await this.getProfileCounts();
-    const followingEstimate = counts.following ?? 0;
+  private updateCheckpoint(patch: Partial<ScanCheckpoint>): ScanCheckpoint {
+    const base = this.checkpoint ?? createCheckpoint(this.viewerId, Date.now());
+    const next = { ...base, ...patch, savedAt: Date.now() };
+    this.checkpoint = next;
 
-    const following = await this.fetchFriendshipUsers('following', loaded =>
-      onProgress?.({
-        phase: 'following',
-        current: loaded,
-        total: Math.max(followingEstimate, loaded) * 2,
-      }),
-    );
+    if (this.emitCheckpoint && next.savedAt - this.lastCheckpointEmit >= CHECKPOINT_EMIT_MS) {
+      this.lastCheckpointEmit = next.savedAt;
+      this.emitCheckpoint(next);
+    }
+    return next;
+  }
 
-    if (following.length === 0) {
-      if (counts.following && counts.following > 0) {
-        throw new Error('Following list could not be loaded');
+  private reportFollowing(loaded: number) {
+    const estimate = Math.max(this.checkpoint?.followingTotal ?? 0, loaded);
+    this.scanProgress?.({ phase: 'following', current: loaded, total: estimate * 2 });
+  }
+
+  private async collectFollowing(): Promise<void> {
+    let checkpoint = this.checkpoint ?? createCheckpoint(this.viewerId, Date.now());
+    if (checkpoint.followingTotal === null && checkpoint.followersTotal === null) {
+      const counts = await this.getProfileCounts();
+      checkpoint = this.updateCheckpoint({ followingTotal: counts.following, followersTotal: counts.followers });
+    }
+    if (checkpoint.followingDone) return;
+
+    let maxId = checkpoint.followingCursor;
+    let page = 0;
+    this.reportFollowing(checkpoint.following.length);
+
+    for (;;) {
+      const data = await this.requestJson<FriendshipsPage>(this.friendshipListUrl('following', maxId), 'following');
+      if (data.should_limit_list_of_followings === true) {
+        throw new ScanStoppedError('limited', scanStopMessage('limited'));
       }
-      this.followings = [];
-      return;
+
+      const pageUsers = (data.users ?? []).map(compactFriendshipUser);
+      const following = dedupeFriendshipUsers([...(this.checkpoint?.following ?? []), ...pageUsers]);
+      const step = nextPageStep({
+        nextMaxId: data.next_max_id,
+        pageLength: pageUsers.length,
+        prevMaxId: maxId,
+        emptyRun: this.checkpoint?.followingEmptyRun ?? 0,
+        hasMore: data.has_more,
+      });
+      page += 1;
+
+      if (step.kind === 'tooManyEmpty') {
+        this.updateCheckpoint({ following, followingEmptyRun: MAX_EMPTY_PAGES });
+        throw new ScanStoppedError('gap', scanStopMessage('gap'));
+      }
+
+      if (step.kind === 'continue') {
+        maxId = data.next_max_id as string;
+        this.updateCheckpoint({ following, followingCursor: maxId, followingEmptyRun: step.emptyRun });
+        this.reportFollowing(following.length);
+        await this.pacePage(page);
+        continue;
+      }
+
+      // A repeated cursor, or "more" without a cursor, ends the list here. In
+      // the following list that can only hide non-followers, never add a follower.
+      this.updateCheckpoint({
+        following,
+        followingCursor: undefined,
+        followingDone: true,
+        followingGap: step.kind === 'stuck',
+      });
+      this.reportFollowing(following.length);
+      break;
     }
 
-    const followBack = await this.getFollowBackIds(following, counts.followers, onProgress);
-
-    this.followBackIncomplete = followBack.incomplete;
-    this.followings = mapFollowingToUsers(following, followBack.ids);
+    const total = this.checkpoint?.followingTotal ?? 0;
+    if ((this.checkpoint?.following.length ?? 0) === 0 && total > 0) {
+      throw new Error('Following list could not be loaded');
+    }
   }
 
-  getUnFollowers() {
-    return computeUnfollowers(this.followings);
+  /**
+   * Decide who follows back. Results land in the checkpoint as they arrive,
+   * so a stopped scan does not ask Instagram about the same accounts again.
+   */
+  private async resolveFollowBack(): Promise<ScanResult> {
+    const checkpoint = this.checkpoint ?? createCheckpoint(this.viewerId, Date.now());
+    const { following } = checkpoint;
+    const followingCount = following.length;
+    const total = followingCount * 2;
+
+    const known = new Set([...checkpoint.followBackIds, ...checkpoint.notFollowBackIds]);
+    for (const id of inlineFollowBackIds(following)) known.add(id);
+    const missing = usersUnconfirmedFollowBack(following).filter(user => !known.has(getFriendshipUserId(user)));
+
+    const finish = (assumeFollowBack: readonly FriendshipUser[]): ScanResult => {
+      this.scanProgress?.({ phase: 'followers', current: total, total });
+      const latest = this.checkpoint ?? checkpoint;
+      const followBackIds = new Set([
+        ...latest.followBackIds,
+        ...inlineFollowBackIds(following),
+        // Unknown accounts stay off the list rather than risk unfollowing a follower.
+        ...assumeFollowBack.map(getFriendshipUserId),
+      ]);
+      return {
+        users: computeUnfollowers(mapFollowingToUsers(following, followBackIds)),
+        incomplete: assumeFollowBack.length > 0 || latest.followingGap,
+      };
+    };
+    const report = (done: number) => this.scanProgress?.({ phase: 'followers', current: followingCount + done, total });
+
+    if (missing.length === 0) return finish([]);
+    report(followingCount - missing.length);
+
+    const followersCount = checkpoint.followersTotal;
+    const followerPages =
+      followersCount === null ? Number.POSITIVE_INFINITY : Math.ceil(followersCount / FOLLOWERS_PAGE_SIZE);
+    const walkFollowers = followerPages <= CHEAP_FOLLOWER_PAGES;
+    const alreadyKnown = followingCount - missing.length;
+    let triedShowMany = false;
+
+    if (!walkFollowers && shouldPreferShowMany(followersCount, missing.length, FOLLOWERS_PAGE_SIZE, SHOW_MANY_BATCH)) {
+      triedShowMany = true;
+      if (await this.confirmWithShowMany(missing, done => report(alreadyKnown + done))) return finish([]);
+    }
+
+    const stillMissing = this.unresolved(missing);
+    const walk = await this.collectFollowBackFromFollowers(stillMissing, found => report(alreadyKnown + found));
+    if (walk.complete) {
+      // The whole followers list was read: whoever was not in it does not follow back.
+      const notFollowBack = this.unresolved(stillMissing).map(getFriendshipUserId);
+      this.updateCheckpoint({
+        notFollowBackIds: [...(this.checkpoint?.notFollowBackIds ?? []), ...notFollowBack],
+      });
+      return finish([]);
+    }
+
+    // The walk stopped early. Ask about the rest directly before giving up on them.
+    const unresolved = this.unresolved(stillMissing);
+    if (!triedShowMany && (await this.confirmWithShowMany(unresolved, done => report(alreadyKnown + done)))) {
+      return finish([]);
+    }
+
+    return finish(this.unresolved(unresolved));
   }
 
-  clearStorage() {
-    this.followings = [];
-    this.followBackIncomplete = false;
+  /** Accounts whose follow-back status is still unknown. */
+  private unresolved(users: readonly FriendshipUser[]): FriendshipUser[] {
+    const checkpoint = this.checkpoint;
+    if (!checkpoint) return [...users];
+    const known = new Set([...checkpoint.followBackIds, ...checkpoint.notFollowBackIds]);
+    return users.filter(user => !known.has(getFriendshipUserId(user)));
   }
 
-  private async postForm(path: string, fields: Record<string, string>) {
-    const response = await fetch(path, {
+  private recordFollowBack(followBack: readonly string[], notFollowBack: readonly string[]) {
+    const checkpoint = this.checkpoint;
+    this.updateCheckpoint({
+      followBackIds: [...(checkpoint?.followBackIds ?? []), ...followBack],
+      notFollowBackIds: [...(checkpoint?.notFollowBackIds ?? []), ...notFollowBack],
+    });
+  }
+
+  private async postForm(path: string, fields: Record<string, string>, extraHeaders: Record<string, string> = {}) {
+    return fetch(path, {
       headers: {
         ...this.igHeaders(),
         'content-type': 'application/x-www-form-urlencoded',
+        ...extraHeaders,
       },
       referrerPolicy: 'strict-origin-when-cross-origin',
       method: 'POST',
@@ -213,12 +396,6 @@ export class Instagram {
       credentials: 'include',
       body: new URLSearchParams(fields),
     });
-
-    if (response.status === 401 || response.status === 403) {
-      throw new AuthenticationError(t('authError'));
-    }
-
-    return response;
   }
 
   private igHeaders() {
@@ -230,12 +407,15 @@ export class Instagram {
     };
   }
 
-  private readGraphqlTokens(): GraphqlTokens | null {
-    if (this.graphqlTokens !== undefined) return this.graphqlTokens;
-    if (typeof document === 'undefined') {
-      this.graphqlTokens = null;
-      return null;
-    }
+  /**
+   * GraphQL writes carry per-session tokens. They come from the page's inline
+   * data; when the content script finds none there, a fresh copy of the home
+   * page has them.
+   */
+  private async readGraphqlTokens(): Promise<GraphqlTokens | null> {
+    if (this.graphqlTokens) return this.graphqlTokens;
+    if (typeof document === 'undefined') return null;
+    if (Date.now() - this.graphqlTokensMissAt < TOKEN_RETRY_MS) return null;
 
     const scripts = document.querySelectorAll('script');
     const chunks: string[] = [];
@@ -246,35 +426,37 @@ export class Instagram {
       }
     }
 
-    this.graphqlTokens = extractGraphqlTokens(chunks.join('\n'));
-    return this.graphqlTokens;
+    let tokens = extractGraphqlTokens(chunks.join('\n'));
+    if (!tokens) {
+      try {
+        const response = await fetch('/', { credentials: 'include' });
+        tokens = extractGraphqlTokens(await response.text());
+      } catch {
+        tokens = null;
+      }
+    }
+    this.graphqlTokens = tokens;
+    if (!tokens) this.graphqlTokensMissAt = Date.now();
+    return tokens;
   }
 
-  /**
-   * Instagram web unfollows through Relay (`usePolarisUnfollowMutation`).
-   * Session tokens come from the page; REST is used when GraphQL is unavailable.
-   */
-  private async unFollowViaGraphql(user: User): Promise<'ok' | 'blocked' | 'miss'> {
-    const tokens = this.readGraphqlTokens();
-    if (!tokens) return 'miss';
+  /** Unfollow the way instagram.com's own button does (`usePolarisUnfollowMutation`). */
+  private async unFollowViaGraphql(user: User): Promise<'confirmed' | 'unconfirmed' | 'blocked' | 'failed'> {
+    const tokens = await this.readGraphqlTokens();
+    if (!tokens) return 'failed';
 
+    const actorId = this.sharedData.config.viewer.fbid || this.sharedData.config.viewerId;
+    const headers: Record<string, string> = {
+      'x-fb-friendly-name': UNFOLLOW_FRIENDLY_NAME,
+      'x-fb-lsd': tokens.lsd,
+    };
+    if (tokens.asbdId) headers['x-asbd-id'] = tokens.asbdId;
+
+    let response: Response;
     try {
-      const actorId = this.sharedData.config.viewer.fbid || this.sharedData.config.viewerId;
-      const headers: Record<string, string> = {
-        ...this.igHeaders(),
-        'content-type': 'application/x-www-form-urlencoded',
-        'x-fb-friendly-name': UNFOLLOW_FRIENDLY_NAME,
-        'x-fb-lsd': tokens.lsd,
-      };
-      if (tokens.asbdId) headers['x-asbd-id'] = tokens.asbdId;
-
-      const response = await fetch('https://www.instagram.com/api/graphql', {
-        headers,
-        referrerPolicy: 'strict-origin-when-cross-origin',
-        method: 'POST',
-        mode: 'cors',
-        credentials: 'include',
-        body: new URLSearchParams({
+      response = await this.postForm(
+        'https://www.instagram.com/api/graphql',
+        {
           av: actorId,
           __d: 'www',
           __user: '0',
@@ -286,117 +468,82 @@ export class Instagram {
           fb_api_caller_class: 'RelayModern',
           fb_api_req_friendly_name: UNFOLLOW_FRIENDLY_NAME,
           server_timestamps: 'true',
-          variables: JSON.stringify({
-            target_user_id: user.id,
-            container_module: 'profile',
-          }),
+          variables: JSON.stringify({ target_user_id: user.id, container_module: 'profile' }),
           doc_id: UNFOLLOW_DOC_ID,
-        }),
-      });
-
-      if (response.status === 401 || response.status === 403) {
-        throw new AuthenticationError(t('authError'));
-      }
-
-      let payload: unknown = {};
-      try {
-        payload = await response.json();
-      } catch {
-        return 'miss';
-      }
-
-      if (isGraphqlUnfollowBlocked(response.status, payload)) return 'blocked';
-      if (isGraphqlUnfollowSuccess(payload)) return 'ok';
-      return 'miss';
-    } catch (error) {
-      if (error instanceof AuthenticationError) throw error;
-      return 'miss';
+        },
+        headers,
+      );
+    } catch {
+      return 'failed';
     }
+
+    let payload: unknown = {};
+    try {
+      payload = await response.json();
+    } catch {
+      payload = {};
+    }
+
+    if (!response.ok) {
+      const kind = classifyIgFailure(response.status, payload);
+      if (kind === 'auth') throw new AuthenticationError(t('authError'));
+      if (kind === 'rate' || kind === 'blocked') return 'blocked';
+      return 'failed';
+    }
+
+    if (isGraphqlUnfollowBlocked(response.status, payload)) return 'blocked';
+    const outcome = graphqlUnfollowOutcome(payload);
+    if (outcome === 'failed' && graphqlErrorMessage(payload)) {
+      // A stale session token: read fresh ones on the next attempt.
+      this.graphqlTokens = undefined;
+    }
+    return outcome;
   }
 
-  private async getFollowBackIds(
-    users: FriendshipUser[],
-    followersCount: number | null,
-    onProgress?: ProgressCallback,
-  ): Promise<FollowBackResult> {
-    const followingCount = users.length;
-    const total = followingCount * 2;
-    const followBackIds = inlineFollowBackIds(users);
-    const missing = usersUnconfirmedFollowBack(users);
-    const finish = (incomplete: boolean): FollowBackResult => {
-      onProgress?.({ phase: 'followers', current: total, total });
-      return { ids: followBackIds, incomplete };
-    };
-    if (missing.length === 0) return finish(false);
-
-    const aliasToCanonical = indexFollowBackAliases(missing);
-    const canonicalCount = new Set(aliasToCanonical.values()).size;
-    const followerPages =
-      followersCount === null ? Number.POSITIVE_INFINITY : Math.ceil(followersCount / FOLLOWERS_PAGE_SIZE);
-    const walkFollowers = followerPages <= CHEAP_FOLLOWER_PAGES;
-    let triedShowMany = false;
-
-    if (!walkFollowers && shouldPreferShowMany(followersCount, missing.length, FOLLOWERS_PAGE_SIZE, SHOW_MANY_BATCH)) {
-      triedShowMany = true;
-      const batched = await this.confirmWithShowMany(missing, done =>
-        onProgress?.({ phase: 'followers', current: followingCount + done, total }),
+  /** Ask Instagram directly whether the viewer still follows this account. Null when the lookup fails. */
+  private async isStillFollowing(user: User): Promise<boolean | null> {
+    try {
+      const response = await fetch(
+        `https://www.instagram.com/api/v1/friendships/show/${encodeURIComponent(user.id)}/`,
+        {
+          headers: this.igHeaders(),
+          credentials: 'include',
+        },
       );
-      if (batched) {
-        for (const id of batched) followBackIds.add(id);
-        return finish(false);
-      }
+      if (!response.ok) return null;
+      const data = (await response.json()) as {
+        status?: string;
+        following?: unknown;
+        friendship_status?: { following?: unknown };
+      };
+      if (data.status && data.status !== 'ok') return null;
+      const following = typeof data.following === 'boolean' ? data.following : data.friendship_status?.following;
+      return typeof following === 'boolean' ? following : null;
+    } catch {
+      return null;
     }
-
-    const { confirmed, complete } = await this.collectFollowBackFromFollowers(aliasToCanonical, canonicalCount, found =>
-      onProgress?.({ phase: 'followers', current: followingCount + found, total }),
-    );
-
-    for (const id of confirmed) followBackIds.add(id);
-    if (complete) return finish(false);
-
-    // The walk stopped early. Ask about the rest directly before giving up on them.
-    const unresolved = missing.filter(user => !confirmed.has(getFriendshipUserId(user)));
-    const batched = triedShowMany
-      ? null
-      : await this.confirmWithShowMany(unresolved, done =>
-          onProgress?.({ phase: 'followers', current: followingCount + confirmed.size + done, total }),
-        );
-    if (batched) {
-      for (const id of batched) followBackIds.add(id);
-      return finish(false);
-    }
-
-    // Still unknown: keep them off the list rather than risk unfollowing a follower.
-    for (const user of unresolved) followBackIds.add(getFriendshipUserId(user));
-    return finish(true);
   }
 
   /**
-   * Batched friendship lookup. Returns null when `followed_by` is missing so the
-   * caller walks the followers list instead of calling `show/{id}` per user.
+   * Batched friendship lookup. Returns false when `followed_by` is missing or a
+   * request fails, so the caller can walk the followers list instead.
    */
-  private async confirmWithShowMany(
-    users: FriendshipUser[],
-    onDone?: (done: number) => void,
-  ): Promise<Set<string> | null> {
-    const followBackIds = new Set<string>();
+  private async confirmWithShowMany(users: FriendshipUser[], onDone?: (done: number) => void): Promise<boolean> {
     let done = 0;
 
     for (let i = 0; i < users.length; i += SHOW_MANY_BATCH) {
       const chunk = users.slice(i, i + SHOW_MANY_BATCH);
-      let flags: Map<string, boolean | undefined> | null = null;
-      try {
-        flags = await this.fetchShowManyFlags(chunk.map(user => getFriendshipUserId(user)));
-      } catch (error) {
-        if (error instanceof AuthenticationError) throw error;
-        return null;
-      }
-      if (!flags) return null;
+      const flags = await this.fetchShowManyFlags(chunk.map(user => getFriendshipUserId(user)));
+      if (!flags) return false;
 
+      const followBack: string[] = [];
+      const notFollowBack: string[] = [];
       for (const user of chunk) {
         const id = getFriendshipUserId(user);
-        if (!flags.has(id) || flags.get(id) !== false) followBackIds.add(id);
+        if (flags.has(id) && flags.get(id) === false) notFollowBack.push(id);
+        else followBack.push(id);
       }
+      this.recordFollowBack(followBack, notFollowBack);
 
       done += chunk.length;
       onDone?.(done);
@@ -405,81 +552,93 @@ export class Instagram {
       }
     }
 
-    return followBackIds;
+    return true;
   }
 
   private async fetchShowManyFlags(userIds: string[]): Promise<Map<string, boolean | undefined> | null> {
-    for (let attempt = 0; ; attempt += 1) {
-      const response = await this.postForm('https://www.instagram.com/api/v1/friendships/show_many/', {
-        user_ids: userIds.join(','),
-      });
-
-      if (response.status === 429 || response.status >= 500) {
-        // A rate limit here must not fall through to paging every follower.
-        if (response.status !== 429 && attempt >= MAX_RATE_RETRIES) return null;
-        await this.waitForRetry(response, attempt);
-        continue;
-      }
-
-      if (!response.ok) return null;
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        return null;
-      }
-
-      const flags = readShowManyFollowedBy(payload);
-      if (!flags || !showManyReportsFollowedBy(flags)) return null;
-      return flags;
+    let payload: unknown;
+    try {
+      payload = await this.requestJson<{ status?: string; message?: string }>(
+        'https://www.instagram.com/api/v1/friendships/show_many/',
+        'show_many',
+        { user_ids: userIds.join(',') },
+      );
+    } catch (error) {
+      // A rate limit or sign-out must stop the scan, not fall through to paging every follower.
+      if (error instanceof AuthenticationError || error instanceof ScanStoppedError) throw error;
+      return null;
     }
+
+    const flags = readShowManyFollowedBy(payload);
+    if (!flags || !showManyReportsFollowedBy(flags)) return null;
+    return flags;
   }
 
   /**
-   * Walk the viewer's followers list and mark which following accounts appear in it.
+   * Walk the viewer's followers list and mark which of `users` appear in it.
    * When `complete` is false the walk stopped early, so a missing id is unknown.
    */
   private async collectFollowBackFromFollowers(
-    aliasToCanonical: ReadonlyMap<string, string>,
-    canonicalCount: number,
+    users: readonly FriendshipUser[],
     onConfirm?: (confirmed: number) => void,
-  ): Promise<{ confirmed: Set<string>; complete: boolean }> {
+  ): Promise<{ complete: boolean }> {
+    const aliasToCanonical = indexFollowBackAliases(users);
+    const canonicalCount = new Set(aliasToCanonical.values()).size;
     const confirmed = new Set<string>();
     let maxId: string | undefined;
     let pages = 0;
+    let emptyRun = 0;
+    let seen = 0;
 
     for (;;) {
       let data: FriendshipsPage;
       try {
-        data = await this.igGetJson<FriendshipsPage>(this.friendshipListUrl('followers', maxId), 'followers');
+        data = await this.requestJson<FriendshipsPage>(this.friendshipListUrl('followers', maxId), 'followers');
       } catch (error) {
-        if (error instanceof AuthenticationError) throw error;
-        return { confirmed, complete: false };
+        if (error instanceof AuthenticationError || error instanceof ScanStoppedError) throw error;
+        return { complete: false };
       }
+      if (data.should_limit_list_of_followers === true) return { complete: false };
 
-      const users = data.users ?? [];
-      for (const user of users) {
+      const pageUsers = data.users ?? [];
+      seen += pageUsers.length;
+      const found: string[] = [];
+      for (const user of pageUsers) {
         const canonical = matchCanonicalFollowBack(user, aliasToCanonical);
-        if (canonical) confirmed.add(canonical);
+        if (canonical && !confirmed.has(canonical)) {
+          confirmed.add(canonical);
+          found.push(canonical);
+        }
       }
+      if (found.length) this.recordFollowBack(found, []);
 
       pages += 1;
       onConfirm?.(confirmed.size);
+      if (canonicalCount > 0 && confirmed.size === canonicalCount) return { complete: true };
 
-      if (canonicalCount > 0 && confirmed.size === canonicalCount) return { confirmed, complete: true };
+      const step = nextPageStep({
+        nextMaxId: data.next_max_id,
+        pageLength: pageUsers.length,
+        prevMaxId: maxId,
+        emptyRun,
+        hasMore: data.has_more,
+      });
+      if (step.kind === 'end') {
+        // A missing cursor ends the walk, but a short list is not proof that someone does not follow back.
+        const ended = followersPageOutcome(data.next_max_id, pageUsers.length, maxId) === 'complete';
+        return { complete: ended && followersWalkLooksComplete(seen, this.checkpoint?.followersTotal ?? null) };
+      }
+      // A gap in the followers list could make a follower look like a non-follower.
+      if (step.kind !== 'continue') return { complete: false };
 
-      const nextMaxId = data.next_max_id;
-      const outcome = followersPageOutcome(nextMaxId, users.length, maxId);
-      if (outcome !== 'continue') return { confirmed, complete: outcome === 'complete' };
-
-      maxId = nextMaxId as string;
+      emptyRun = step.emptyRun;
+      maxId = data.next_max_id as string;
       await this.pacePage(pages);
     }
   }
 
   private friendshipListUrl(list: 'following' | 'followers', maxId?: string): string {
-    const url = new URL(`https://www.instagram.com/api/v1/friendships/${this.sharedData.config.viewerId}/${list}/`);
+    const url = new URL(`https://www.instagram.com/api/v1/friendships/${this.viewerId}/${list}/`);
     url.searchParams.set('count', String(FRIENDSHIP_PAGE_SIZE));
     url.searchParams.set('search_surface', 'follow_list_page');
     // Without an explicit order Instagram returns its "Default" ranking, which
@@ -490,88 +649,82 @@ export class Instagram {
   }
 
   private async pacePage(page: number) {
-    if (page <= SCAN_FAST_PAGES) {
-      await delay(randomBetween(SCAN_FAST_DELAY_MIN_MS, SCAN_FAST_DELAY_MAX_MS));
+    const pacing = this.pacing;
+    if (page <= pacing.fastPages) {
+      await delay(randomBetween(pacing.fastDelayMinMs, pacing.fastDelayMaxMs));
       return;
     }
-    if (SCAN_PAUSE_EVERY_PAGES > 0 && page % SCAN_PAUSE_EVERY_PAGES === 0) {
-      await delay(SCAN_PAUSE_MS);
+    if (pacing.pauseEveryPages > 0 && page % pacing.pauseEveryPages === 0) {
+      await delay(pacing.pauseMs + randomBetween(0, Math.max(1, Math.round(pacing.pauseMs * 0.3))));
       return;
     }
-    await delay(randomBetween(SCAN_DELAY_MIN_MS, SCAN_DELAY_MAX_MS));
+    await delay(randomBetween(pacing.delayMinMs, pacing.delayMaxMs));
   }
 
-  private async fetchFriendshipUsers(
-    list: 'following' | 'followers',
-    onPage?: (loaded: number) => void,
-  ): Promise<FriendshipUser[]> {
-    const all: FriendshipUser[] = [];
-    let maxId: string | undefined;
-    let page = 0;
-
-    for (;;) {
-      const data = await this.igGetJson<FriendshipsPage>(this.friendshipListUrl(list, maxId), list);
-      const users = data.users ?? [];
-      all.push(...users);
-      onPage?.(dedupeFriendshipUsers(all).length);
-      page += 1;
-
-      const nextMaxId = data.next_max_id;
-      if (shouldStopPaging(nextMaxId, users.length, maxId)) break;
-      maxId = nextMaxId as string;
-
-      await this.pacePage(page);
-    }
-
-    return dedupeFriendshipUsers(all);
+  private remember(status: number, body: unknown) {
+    const record = body && typeof body === 'object' ? (body as { message?: unknown; error_type?: unknown }) : {};
+    const message = [record.message, record.error_type].find(value => typeof value === 'string');
+    this.lastHttp = { status, message: typeof message === 'string' ? message.slice(0, 120) : '' };
   }
 
-  private async igGetJson<T extends { status?: string; message?: string }>(url: string, label: string): Promise<T> {
+  /**
+   * GET (or POST when `form` is given) JSON from Instagram. Rate limits are
+   * waited out a few times, then stop the scan; blocks stop it at once.
+   */
+  private async requestJson<T extends { status?: string; message?: string }>(
+    url: string,
+    label: string,
+    form?: Record<string, string>,
+  ): Promise<T> {
+    let rateAttempts = 0;
+
     for (let attempt = 0; ; attempt += 1) {
-      const response = await fetch(url, {
-        headers: this.igHeaders(),
-        credentials: 'include',
-      });
+      const response = form
+        ? await this.postForm(url, form)
+        : await fetch(url, { headers: this.igHeaders(), credentials: 'include' });
 
-      if (response.status === 401 || response.status === 403) {
+      let body: unknown;
+      let parsed = true;
+      try {
+        body = await response.json();
+      } catch {
+        parsed = false;
+      }
+
+      if (response.ok && !parsed) {
+        // An HTML page instead of JSON is Instagram's login wall.
+        this.remember(response.status, { message: 'not json' });
         throw new AuthenticationError(t('authError'));
       }
 
-      if (response.status === 429 || response.status >= 500) {
-        // A 429 means slow down, not stop. Keep waiting while the Instagram tab stays open.
-        if (response.status !== 429 && attempt >= MAX_RATE_RETRIES) {
-          throw new Error(`Request failed with status: ${response.status}`);
-        }
+      const data = (body ?? {}) as T;
+      const failed = !response.ok || (data.status !== undefined && data.status !== 'ok');
+      if (!failed) return data;
+
+      this.remember(response.status, body);
+      const kind = classifyIgFailure(response.status, body);
+
+      if (kind === 'blocked') throw new ScanStoppedError('blocked', scanStopMessage('blocked'));
+      if (kind === 'rate') {
+        if (rateAttempts >= MAX_RATE_RETRIES) throw new ScanStoppedError('rate', scanStopMessage('rate'));
+        await this.waitForRetry(response, rateAttempts);
+        rateAttempts += 1;
+        continue;
+      }
+      if (kind === 'auth') throw new AuthenticationError(t('authError'));
+
+      const transient = response.status >= 500 || (response.ok && isRetryableIgFail(data));
+      if (transient && attempt < MAX_RETRIES) {
         await this.waitForRetry(response, attempt);
         continue;
       }
-
-      if (!response.ok) throw new Error(`Request failed with status: ${response.status}`);
-
-      let data: T;
-      try {
-        data = (await response.json()) as T;
-      } catch {
-        // An HTML page (login wall, interstitial) instead of JSON.
-        throw new Error(t('scanFailed'));
-      }
-      if (data.status && data.status !== 'ok') {
-        if (attempt < MAX_RETRIES && isRetryableIgFail(data)) {
-          const wait = Math.min(MAX_RATE_WAIT_MS, Math.max(8000, BACKOFF_BASE_MS * 2 ** attempt));
-          this.notifyRateLimit(wait);
-          await delay(wait + randomBetween(0, 1000));
-          continue;
-        }
-        throw new Error(data.message || `Failed to fetch ${label}`);
-      }
-
-      return data;
+      throw new Error(data.message || `Failed to fetch ${label} (${response.status})`);
     }
   }
 
   private async getProfileCounts(): Promise<ProfileCounts> {
     try {
-      const response = await fetch(`https://www.instagram.com/api/v1/users/${this.sharedData.config.viewerId}/info/`, {
+      const response = await fetch(`https://www.instagram.com/api/v1/users/${this.viewerId}/info/`, {
         headers: this.igHeaders(),
         credentials: 'include',
       });
@@ -590,7 +743,7 @@ export class Instagram {
 
   private async waitForRetry(response: Response, attempt: number) {
     const retryAfter = Number(response.headers.get('retry-after'));
-    const backoff = Math.min(MAX_RATE_WAIT_MS, Math.max(8000, BACKOFF_BASE_MS * 2 ** attempt));
+    const backoff = Math.min(MAX_RATE_WAIT_MS, Math.max(8000, BACKOFF_BASE_MS * 2 ** (attempt + 2)));
     const wait = retryAfter > 0 ? Math.min(MAX_RATE_WAIT_MS, retryAfter * 1000) : backoff;
     this.notifyRateLimit(wait);
     await delay(wait + randomBetween(0, 1000));
@@ -598,14 +751,12 @@ export class Instagram {
 
   private notifyRateLimit(waitMs: number) {
     const previous = this.lastProgress;
-    const progress: ScanProgress = {
+    this.scanProgress?.({
       phase: previous?.phase ?? 'following',
       current: previous?.current ?? 0,
       total: previous?.total ?? 0,
       retryInMs: waitMs,
-    };
-    this.lastProgress = progress;
-    this.scanProgress?.(progress);
+    });
   }
 }
 
