@@ -10,40 +10,64 @@ Unfolks - Find who doesn't follow you back on Instagram!
 **Short Description** [REQUIRED]
 Find Instagram accounts that don't follow you back and unfollow them from a side panel.
 
-**Detailed Description** [REQUIRED]
-Unfolks shows which Instagram accounts you follow that do not follow you back, and lets you unfollow them without leaving the page.
+**Detailed Description** [REQUIRED] — English
+Unfolks shows which Instagram accounts you follow that do not follow you back, and lets you unfollow them from a side panel next to Instagram.
 
 FEATURES
-• Scan your following list to see who does not follow you back
-• Search, sort, and filter verified vs regular accounts
-• Filter private accounts and accounts without a profile photo
+• Scan your following list and see who does not follow you back
+• Search, sort, and filter: verified, not verified, private, no profile photo
 • Hide accounts you want to keep; hidden accounts are never unfollowed in bulk
-• Select accounts and unfollow only those, or copy their usernames
-• Unfollow one account at a time, or several with a wait between each and a longer rest every few accounts, so Instagram is less likely to block you
+• Select accounts (double-click a card or "Select all") and unfollow only those, or copy their usernames
+• Unfollow at a safe pace: a wait between every unfollow and a longer rest every few accounts, both adjustable
 • Choose the scan speed: fast, balanced, or careful
-• See scan progress as it runs, and a countdown when Instagram asks the extension to slow down
-• If Instagram stops a scan, resume it later from where it stopped
+• If Instagram limits a scan, your progress is kept and you can resume later from where it stopped
 • No-risk option: drop the file from Instagram's "Download your information" and see who doesn't follow you back without sending Instagram any request
-• Keeps the last scan on your computer so you can reopen the panel and continue, even mid-scan
 • Works in a side panel that stays open while you browse
 
 HOW TO USE
 1. Open Instagram in Chrome and sign in
 2. Click the Unfolks icon in the toolbar to open the side panel
-3. Click "Show unfollowers" (or "Refresh the list") and wait for the scan to finish
+3. Click "Show unfollowers" and wait for the scan to finish
 4. Review the list, then unfollow accounts one by one or in a batch
 
 PRIVACY
-Your following list, scan results, and profile name stay on this computer. Unfolks does not send your Instagram password anywhere. If something crashes, a report may go to Sentry so the problem can be fixed. See the privacy policy for details.
+Your following list, scan results, and settings stay on this computer. Unfolks never asks for your Instagram password; it uses the session already open in your browser. Files from your Instagram data download are read in the panel and never uploaded. If something crashes, a report may go to Sentry so the problem can be fixed. See the privacy policy for details.
 
 PERMISSIONS
-• Storage — keeps a short-lived copy of the latest scan/account update if Chrome restarts background work before the side panel reconnects
+• Storage — keeps your list, settings, and the progress of a stopped scan on this computer
 • Side panel — opens Unfolks beside the page instead of covering Instagram
 • Instagram and image hosts — needed to read your following list, unfollow, and show profile photos. The extension does not run on other websites.
 
 SUPPORT
 Questions or bugs: mail@ozgurozalp.com
 Source: https://github.com/ozgurozalp/unfolks
+
+**Detailed Description** — Türkçe (Turkish localization)
+Unfolks, takip ettiğin hesaplardan hangilerinin seni geri takip etmediğini gösterir ve Instagram'ın yanındaki bir panelden takibi bırakmanı sağlar.
+
+ÖZELLİKLER
+• Takip listeni tara, seni geri takip etmeyenleri gör
+• Ara, sırala ve filtrele: onaylı, onaysız, gizli hesap, profil fotoğrafı olmayan
+• Tutmak istediğin hesapları gizle; gizlenen hesapların takibi toplu işlemde asla bırakılmaz
+• Hesapları seç (karta çift tıkla ya da "Tümünü seç") ve yalnızca onları bırak ya da kullanıcı adlarını kopyala
+• Takibi güvenli tempoda bırak: her işlem arasında bekleme ve birkaç hesapta bir uzun mola, ikisi de ayarlanabilir
+• Tarama hızını seç: hızlı, dengeli ya da temkinli
+• Instagram taramayı sınırlarsa ilerlemen kaybolmaz; daha sonra kaldığı yerden devam edebilirsin
+• Risksiz seçenek: Instagram'ın "Bilgilerini indir" dosyasını bırak, Instagram'a hiçbir istek göndermeden seni geri takip etmeyenleri gör
+• Gezinirken açık kalan bir yan panelde çalışır
+
+NASIL KULLANILIR
+1. Chrome'da Instagram'ı aç ve giriş yap
+2. Araç çubuğundaki Unfolks simgesine tıklayıp yan paneli aç
+3. "Takip etmeyenleri göster"e tıkla ve taramanın bitmesini bekle
+4. Listeyi gözden geçir, takibi tek tek ya da toplu bırak
+
+GİZLİLİK
+Takip listen, tarama sonuçların ve ayarların bu bilgisayarda kalır. Unfolks Instagram şifreni asla istemez; tarayıcında zaten açık olan oturumu kullanır. Instagram veri dosyaların panelde okunur ve hiçbir yere yüklenmez. Bir çökme olursa sorunun düzeltilebilmesi için Sentry'ye bir hata raporu gidebilir. Ayrıntılar için gizlilik politikasına bakın.
+
+DESTEK
+Soru ve hatalar: mail@ozgurozalp.com
+Kaynak kod: https://github.com/ozgurozalp/unfolks
 
 **Category** [REQUIRED]
 Social & Communication
@@ -62,28 +86,24 @@ English (Turkish locale included)
 | Store Icon [REQUIRED] | 128×128 PNG | ✅ Ready | chrome-extension/public/icon-128.png |
 | Toolbar 16 | 16×16 PNG | ✅ Ready | chrome-extension/public/icon-16.png |
 | Toolbar 32 | 32×32 PNG | ✅ Ready | chrome-extension/public/icon-32.png |
-| Screenshot 1 [REQUIRED] | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 2 [RECOMMENDED] | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 3 [RECOMMENDED] | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 4 | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 5 | 1280×800 or 640×400 | ⬜ Not created | |
+| Screenshot 1 [REQUIRED] — the list | 1280×800 | ✅ Ready | store-assets/screenshots/en-1.png (tr-1.png) |
+| Screenshot 2 — safe bulk unfollow | 1280×800 | ✅ Ready | store-assets/screenshots/en-2.png (tr-2.png) |
+| Screenshot 3 — resume a stopped scan | 1280×800 | ✅ Ready | store-assets/screenshots/en-3.png (tr-3.png) |
+| Screenshot 4 — data file check | 1280×800 | ✅ Ready | store-assets/screenshots/en-4.png (tr-4.png) |
+| Screenshot 5 — speed settings | 1280×800 | ✅ Ready | store-assets/screenshots/en-5.png (tr-5.png) |
 | Small Promo Tile [RECOMMENDED] | 440×280 | ⬜ Not created | |
 | Marquee Promo Tile | 1400×560 | ⬜ Not created | |
 
 ### Asset Notes
-- `chrome-extension/public/icon-512.png` (240 KB) and `pages/popup/public/instagram{16,32,128}.png` ship in `dist/` but nothing references them. Safe to delete to shrink the ZIP; the Instagram logo files are also a trademark risk if a reviewer spots them.
-
-### Screenshot Notes
-1. Side panel open next to an Instagram tab, showing the unfollower list after a scan.
-2. First-run onboarding with Instagram closed vs open, and the "Show unfollowers" button.
-3. Unfollow confirmation dialog and the temporary block countdown, so reviewers see the extension is careful with Instagram limits.
-
+- Screenshots use sample accounts only. Their profile photos are AI-generated and belong to no real person.
+- `en-*` go on the English listing, `tr-*` on the Turkish localization.
+- `store-assets/icon-512.png` is the source icon; it is not shipped in the package.
 
 ## Permissions Justification
 
 | Permission | Type | Justification |
 |------------|------|---------------|
-| storage | permissions | Holds the latest account/scan message if Chrome stops background work before the side panel reconnects, so your name and list still appear when you reopen it. Also keeps the progress of a scan that stopped partway (for up to 24 hours) so it can be resumed. Everything is stored on this computer only. |
+| storage | permissions | Keeps the user's scan results, settings and hidden accounts on this computer, holds the latest account/scan message if Chrome stops background work before the side panel reconnects, and keeps the progress of a scan that stopped partway (for up to 24 hours) so it can be resumed. Nothing is synced or sent off the device. |
 | sidePanel | permissions | Opens Unfolks beside the page so you can review unfollowers without covering Instagram. Chrome only. |
 | https://instagram.com/* | host_permissions | Reads your following/follower lists and sends unfollow requests on Instagram while you are signed in. Does not run on other sites. |
 | https://*.instagram.com/* | host_permissions | Same as above for www, m, and other Instagram subdomains. |
@@ -148,6 +168,7 @@ https://ozgurozalp.com
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 1.4.0 | 2026-10-21 | Resumable scans with cooldowns after Instagram limits, scan speed presets, safer bulk unfollow pacing with rests, GraphQL-only unfollow with confirmation, hide list, filters, selection and copy, offline Instagram data-file check, removed in-panel ad for another app, removed unused Instagram logo files from the package. No new permissions or hosts. | Draft |
 | 1.3.4 | 2026-09-28 | Batched follow-back checks, follower paging backoff, rate-limit wait countdown in the panel, scan state survives closing and reopening the panel. Dev-only web-accessible resources (not in the store build). | Draft |
 | 1.3.3 | 2026-09-27 | Verify follow-backs per account instead of trusting Instagram's following list, which is no longer chronological and mislabels some followers. No permission changes. | Draft |
 | 1.3.2 | 2026-09-15 | Store-readiness: real toolbar/store icons, narrower Instagram-only content scripts, no public extension assets, persist panel messages across background restarts. | Draft |
@@ -157,12 +178,11 @@ https://ozgurozalp.com
 ## Review Notes
 
 ### Known Issues / Limitations
-- Store screenshots (1280×800 or 640×400) still need to be captured from a running build before submission.
-- Privacy policy URL is the GitHub file. Publish that file (or a site copy) before submitting.
+- Privacy policy URL is the GitHub file on `main`. Merge the 1.4.0 PR before submitting so the URL shows the updated policy.
 - The listing name includes "Instagram" because the extension only works there. Do not use Instagram's logo in screenshots.
 - Upload `dist-zip/extension.zip` produced by `pnpm zip`. It puts `manifest.json` at the archive root and excludes `.git`, `node_modules`, `CHROMEWEBSTORE.md`, and `PRIVACY.md`.
 - Do NOT upload a Finder-made `dist.zip`. Finder nests everything under a `dist/` folder and adds `__MACOSX/._*` entries, so the store cannot find `manifest.json` and rejects the upload.
-- Versions 1.3.2 through 1.3.4 added no new permissions or hosts; the Permissions Justification table above is still accurate.
+- Versions 1.3.2 through 1.4.0 added no new permissions or hosts; the Permissions Justification table above is still accurate.
 - Sentry is compiled into the extension. The data disclosure form must list crash reporting.
 
 ### Rejection History
