@@ -53,7 +53,7 @@ export default function BulkActions({ visible, selected, hiddenMode, selectionMo
   return (
     <div className="flex min-h-9 items-center gap-2">
       {!hiddenMode && (
-        <div className="flex min-w-0 items-center pl-[9px] text-sm">
+        <div className="flex min-w-0 items-center text-sm">
           <SlideInCheckbox
             show={selectionMode}
             checked={allSelected}
