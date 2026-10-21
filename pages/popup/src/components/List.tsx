@@ -1,9 +1,10 @@
-import React, { type ReactNode } from 'react';
+import React, { useEffect, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
 import openWindow from '@src/helpers/openWindow';
 import type { User } from '@extension/shared';
 import { useMainStore } from '@src/store';
 import { Avatar, AvatarFallback, AvatarImage, Button, Checkbox, cn, Spinner } from '@extension/ui';
 import { useTranslation } from 'react-i18next';
+import { AnimatePresence, motion } from 'motion/react';
 import { useRateLimitedUnfollow } from '@src/hooks/useRateLimitedUnfollow';
 import { Eye, EyeOff, UserMinus } from 'lucide-react';
 
@@ -12,18 +13,59 @@ interface ListProps {
   className?: string;
 }
 
+/** A single click waits this long so a double click can select the card instead. */
+const DOUBLE_CLICK_MS = 250;
+
 const openProfile = (userName: string) => {
   openWindow(`https://www.instagram.com/${userName}`);
 };
 
+/** Clicks on the card's own controls are theirs, not the card's. */
+const isOnControl = (event: MouseEvent) => (event.target as HTMLElement).closest('button, a, [role="checkbox"]');
+
 export default function List({ children, ...props }: ListProps) {
   return <div {...props}>{children}</div>;
+}
+
+interface SlideInCheckboxProps {
+  show: boolean;
+  checked: boolean;
+  indeterminate?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  label: string;
+}
+
+/** A checkbox that slides in from the left in selection mode and takes no space otherwise. */
+export function SlideInCheckbox({ show, checked, indeterminate, onCheckedChange, label }: SlideInCheckboxProps) {
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.span
+          key="checkbox"
+          className="flex shrink-0 items-center overflow-hidden"
+          initial={{ width: 0, opacity: 0, x: -12 }}
+          animate={{ width: 28, opacity: 1, x: 0 }}
+          exit={{ width: 0, opacity: 0, x: -12 }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <Checkbox
+            checked={checked}
+            indeterminate={indeterminate}
+            onCheckedChange={onCheckedChange}
+            aria-label={label}
+          />
+        </motion.span>
+      )}
+    </AnimatePresence>
+  );
 }
 
 interface ListItemProps {
   user: User;
   isSelected: boolean;
   isHidden: boolean;
+  /** Something is selected, so checkboxes show and a click toggles selection. */
+  selectionMode: boolean;
   onToggleSelect: (id: string, selected: boolean) => void;
   onToggleHidden: (id: string, hidden: boolean) => void;
   className?: string;
@@ -37,6 +79,7 @@ export const ListItem = React.memo(function ListItem({
   user,
   isSelected,
   isHidden,
+  selectionMode,
   onToggleSelect,
   onToggleHidden,
   className,
@@ -46,28 +89,70 @@ export const ListItem = React.memo(function ListItem({
   const scanning = useMainStore(state => state.scanning);
   const { t } = useTranslation();
   const { unfollow } = useRateLimitedUnfollow();
+  const clickTimer = useRef<number | undefined>(undefined);
   const HideIcon = isHidden ? Eye : EyeOff;
+  const selectable = !isHidden;
 
+  useEffect(() => () => window.clearTimeout(clickTimer.current), []);
+
+  const handleClick = (event: MouseEvent) => {
+    // The second click of a double click is handled by onDoubleClick.
+    if (isOnControl(event) || event.detail > 1) return;
+    if (selectionMode && selectable) {
+      onToggleSelect(user.id, !isSelected);
+      return;
+    }
+    window.clearTimeout(clickTimer.current);
+    clickTimer.current = window.setTimeout(() => openProfile(user.username), DOUBLE_CLICK_MS);
+  };
+
+  const handleDoubleClick = (event: MouseEvent) => {
+    if (isOnControl(event) || !selectable || selectionMode) return;
+    window.clearTimeout(clickTimer.current);
+    onToggleSelect(user.id, true);
+  };
+
+  // Keyboard: Enter opens the profile, Space selects.
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === 'Enter') openProfile(user.username);
+    if (event.key === ' ' && selectable) {
+      event.preventDefault();
+      onToggleSelect(user.id, !isSelected);
+    }
+  };
+
+  // The card holds its own buttons, so it cannot be a button itself; keys are handled above.
+  /* eslint-disable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex */
   return (
-    <div className={cn(className, isSelected && 'border-primary/60 bg-primary/5')}>
+    <div
+      tabIndex={0}
+      className={cn(
+        className,
+        'cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isSelected && 'border-primary/60 bg-primary/5',
+      )}
+      title={selectable && !selectionMode ? t('doubleClickToSelect') : undefined}
+      aria-label={user.full_name ? `${user.full_name} (${user.username})` : user.username}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
+    >
       <figure className="flex items-center gap-2 roomy:gap-3">
-        {!isHidden && (
-          <Checkbox
+        <div className="flex shrink-0 items-center">
+          <SlideInCheckbox
+            show={selectionMode && selectable}
             checked={isSelected}
             onCheckedChange={checked => onToggleSelect(user.id, checked)}
-            aria-label={t('selectAccount', { username: user.username })}
+            label={t('selectAccount', { username: user.username })}
           />
-        )}
-        <Avatar className="size-9 shrink-0 roomy:size-11">
-          <AvatarFallback>{(user.full_name || user.username).slice(0, 1)}</AvatarFallback>
-          <AvatarImage crossOrigin="anonymous" draggable="false" src={user.image} alt={user.username} />
-        </Avatar>
+          <Avatar className="size-9 shrink-0 roomy:size-11">
+            <AvatarFallback>{(user.full_name || user.username).slice(0, 1)}</AvatarFallback>
+            <AvatarImage crossOrigin="anonymous" draggable="false" src={user.image} alt={user.username} />
+          </Avatar>
+        </div>
 
-        <figcaption
-          role="button"
-          className="grid min-w-0 flex-1 cursor-pointer"
-          onClick={() => openProfile(user.username)}
-        >
+        <figcaption className="grid min-w-0 flex-1">
           <div className="inline-flex min-w-0 items-center gap-1 font-bold">
             {user.full_name && (
               <p title={user.full_name} className="min-w-0 truncate text-sm">
@@ -112,6 +197,7 @@ export const ListItem = React.memo(function ListItem({
       </figure>
     </div>
   );
+  /* eslint-enable jsx-a11y/no-static-element-interactions, jsx-a11y/no-noninteractive-tabindex */
 });
 
 export function Verified() {

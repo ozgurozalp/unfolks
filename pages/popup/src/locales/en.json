@@ -142,6 +142,8 @@
     "filterNotVerified": "Not verified",
     "accountsCount_one": "1 account",
     "accountsCount_other": "{{count}} accounts",
-    "exportOpenShort": "Data file"
+    "exportOpenShort": "Data file",
+    "doubleClickToSelect": "Double-click to select",
+    "cancelSelection": "Cancel"
   }
 }

@@ -92,6 +92,8 @@ function Filtered({ users }: FilteredProps) {
 
   const selectedUsers = useMemo(() => filteredUsers.filter(user => selectedIds[user.id]), [filteredUsers, selectedIds]);
   const hiddenCount = useMemo(() => users.filter(user => hiddenIds[user.id]).length, [users, hiddenIds]);
+  // Checkboxes show only while something is selected; the hidden list has no selection.
+  const selectionMode = !filters.showHidden && selectedUsers.length > 0;
 
   const toggleSelect = useCallback((id: string, selected: boolean) => setSelected([id], selected), [setSelected]);
   const toggleHidden = useCallback((id: string, hidden: boolean) => setHidden([id], hidden), [setHidden]);
@@ -113,7 +115,12 @@ function Filtered({ users }: FilteredProps) {
       </div>
       <FilterChips hiddenCount={hiddenCount} />
       {filters.showHidden && <p className="text-xs text-muted-foreground">{t('hiddenNote')}</p>}
-      <BulkActions visible={filteredUsers} selected={selectedUsers} hiddenMode={filters.showHidden} />
+      <BulkActions
+        visible={filteredUsers}
+        selected={selectedUsers}
+        hiddenMode={filters.showHidden}
+        selectionMode={selectionMode}
+      />
       <List className="grid">
         <AnimatePresence mode="popLayout" initial={false}>
           {noResults && (
@@ -147,6 +154,7 @@ function Filtered({ users }: FilteredProps) {
                 user={user}
                 isSelected={Boolean(selectedIds[user.id])}
                 isHidden={Boolean(hiddenIds[user.id])}
+                selectionMode={selectionMode}
                 onToggleSelect={toggleSelect}
                 onToggleHidden={toggleHidden}
                 className="rounded border p-2 shadow-md transition-transform duration-150 ease-out hover:scale-[1.01]"

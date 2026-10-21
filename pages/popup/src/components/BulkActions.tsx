@@ -9,7 +9,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
   Button,
-  Checkbox,
   Spinner,
 } from '@extension/ui';
 import { useMainStore } from '@src/store';
@@ -18,7 +17,8 @@ import useNow from '@src/hooks/useNow';
 import copyUsernames from '@src/helpers/copyUsernames';
 import formatDuration from '@src/helpers/formatDuration';
 import { useTranslation } from 'react-i18next';
-import { Copy, Pause, UserX, X } from 'lucide-react';
+import { Copy, ListChecks, Pause, UserX, X } from 'lucide-react';
+import { SlideInCheckbox } from '@src/components/List';
 
 interface BulkActionsProps {
   /** Accounts on screen after filters and search. */
@@ -27,42 +27,69 @@ interface BulkActionsProps {
   selected: User[];
   /** Showing hidden accounts: nothing here may be unfollowed in bulk. */
   hiddenMode: boolean;
+  /** Something is selected; checkboxes are showing. */
+  selectionMode: boolean;
 }
 
 /**
  * One bar above the list: tick-all on the left, copy and unfollow on the right.
  * While a batch runs, its progress takes the bar's place.
  */
-export default function BulkActions({ visible, selected, hiddenMode }: BulkActionsProps) {
+export default function BulkActions({ visible, selected, hiddenMode, selectionMode }: BulkActionsProps) {
   const { t } = useTranslation();
   const setSelected = useMainStore(state => state.setSelected);
   const clearSelection = useMainStore(state => state.clearSelection);
   const { bulkState } = useRateLimitedUnfollow();
   const allSelected = visible.length > 0 && selected.length === visible.length;
   const targets = selected.length > 0 ? selected : visible;
+  const selectAll = () =>
+    setSelected(
+      visible.map(user => user.id),
+      true,
+    );
 
   if (bulkState) return <BulkProgress />;
 
   return (
     <div className="flex min-h-9 items-center gap-2">
       {!hiddenMode && (
-        <label className="flex min-w-0 cursor-pointer items-center gap-3 pl-[9px] text-sm">
-          <Checkbox
+        <div className="flex min-w-0 items-center pl-[9px] text-sm">
+          <SlideInCheckbox
+            show={selectionMode}
             checked={allSelected}
             indeterminate={selected.length > 0 && !allSelected}
-            onCheckedChange={checked =>
-              checked && !allSelected
-                ? setSelected(
-                    visible.map(user => user.id),
-                    true,
-                  )
-                : clearSelection()
-            }
+            onCheckedChange={checked => (checked && !allSelected ? selectAll() : clearSelection())}
+            label={t('selectAll')}
           />
-          <span className="truncate text-muted-foreground">
-            {selected.length > 0 ? t('selectedCount', { count: selected.length }) : t('selectAll')}
-          </span>
-        </label>
+          {selectionMode ? (
+            <>
+              <span className="whitespace-nowrap text-muted-foreground">
+                {t('selectedCount', { count: selected.length })}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-1 size-8 shrink-0 p-0 text-muted-foreground"
+                title={t('cancelSelection')}
+                aria-label={t('cancelSelection')}
+                onClick={clearSelection}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="-ml-2.5 h-9 gap-1.5 px-2.5 text-muted-foreground"
+              disabled={visible.length === 0}
+              onClick={selectAll}
+            >
+              <ListChecks className="size-3.5" />
+              {t('selectAll')}
+            </Button>
+          )}
+        </div>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         <Button
@@ -75,7 +102,7 @@ export default function BulkActions({ visible, selected, hiddenMode }: BulkActio
           onClick={() => copyUsernames(targets.map(user => user.username))}
         >
           <Copy className="size-3.5" />
-          <span className="hidden roomy:inline">{t('copyUsernames')}</span>
+          {!selectionMode && <span className="hidden roomy:inline">{t('copyUsernames')}</span>}
         </Button>
         {!hiddenMode && <BulkUnfollow targets={targets} isSelection={selected.length > 0} />}
       </div>

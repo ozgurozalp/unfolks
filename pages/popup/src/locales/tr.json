@@ -142,6 +142,8 @@
     "filterNotVerified": "Onaysız",
     "accountsCount_one": "1 hesap",
     "accountsCount_other": "{{count}} hesap",
-    "exportOpenShort": "Veri dosyası"
+    "exportOpenShort": "Veri dosyası",
+    "doubleClickToSelect": "Seçmek için çift tıkla",
+    "cancelSelection": "Vazgeç"
   }
 }
