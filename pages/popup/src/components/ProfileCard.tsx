@@ -1,9 +1,9 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@extension/ui';
-import type { InstagramViewer } from '@extension/shared';
+import type { ViewerProfile } from '@extension/shared';
 import type { PropsWithChildren } from 'react';
 
 interface ProfileCardProps {
-  viewer?: InstagramViewer | null;
+  viewer?: ViewerProfile | null;
   action?: PropsWithChildren['children'];
 }
 

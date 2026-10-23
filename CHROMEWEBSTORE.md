@@ -168,6 +168,7 @@ https://ozgurozalp.com
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 1.4.1 | 2026-10-24 | Fewer Instagram session requests: the logged-in account is recognized from the Instagram cookie and its profile card is reused for up to 6 hours, with a fallback when Instagram rate-limits the request. Only the account id, name, username and profile photo URL are kept locally (no tokens). Clear message when a scan finishes while the panel is closed. No new permissions or hosts. | Submitted |
 | 1.4.0 | 2026-10-21 | Resumable scans with cooldowns after Instagram limits, scan speed presets, safer bulk unfollow pacing with rests, GraphQL-only unfollow with confirmation, hide list, filters, selection and copy, offline Instagram data-file check, removed in-panel ad for another app, removed unused Instagram logo files from the package. No new permissions or hosts. | Draft |
 | 1.3.4 | 2026-09-28 | Batched follow-back checks, follower paging backoff, rate-limit wait countdown in the panel, scan state survives closing and reopening the panel. Dev-only web-accessible resources (not in the store build). | Draft |
 | 1.3.3 | 2026-09-27 | Verify follow-backs per account instead of trusting Instagram's following list, which is no longer chronological and mislabels some followers. No permission changes. | Draft |
@@ -182,7 +183,7 @@ https://ozgurozalp.com
 - The listing name includes "Instagram" because the extension only works there. Do not use Instagram's logo in screenshots.
 - Upload `dist-zip/extension.zip` produced by `pnpm zip`. It puts `manifest.json` at the archive root and excludes `.git`, `node_modules`, `CHROMEWEBSTORE.md`, and `PRIVACY.md`.
 - Do NOT upload a Finder-made `dist.zip`. Finder nests everything under a `dist/` folder and adds `__MACOSX/._*` entries, so the store cannot find `manifest.json` and rejects the upload.
-- Versions 1.3.2 through 1.4.0 added no new permissions or hosts; the Permissions Justification table above is still accurate.
+- Versions 1.3.2 through 1.4.1 added no new permissions or hosts; the Permissions Justification table above is still accurate.
 - Sentry is compiled into the extension. The data disclosure form must list crash reporting.
 
 ### Rejection History

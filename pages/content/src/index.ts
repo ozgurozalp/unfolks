@@ -4,32 +4,42 @@ import {
   actionBlockedError,
   AuthenticationError,
   captureException,
+  createCookieSession,
+  createSessionCache,
   getSharedData,
   hasProgress,
   Instagram,
   isSameViewer,
   markStopped,
   readCheckpoint,
+  readLoggedInUserId,
+  readSessionCache,
   SCAN_PACING,
+  SESSION_CACHE_MAX_STALE_MS,
+  toViewerProfile,
   scanStopMessage,
   resolveScanSpeed,
   ScanStoppedError,
   summarizeCheckpoint,
   TYPES,
   withoutAccount,
-  type InstagramViewer,
+  type InstagramSession,
   type Request,
   type ScanCheckpoint,
   type ScanProgress,
   type ScanStopReason,
   type User,
+  type ViewerProfile,
 } from '@extension/shared';
 import { sendMessageToBackground } from '@src/lib/utils';
+
+/** The last loaded Instagram session, reused while the same account stays logged in. */
+const SESSION_KEY = 'unfolks-session';
 
 /** One checkpoint per Instagram account, so switching accounts keeps each one's wait. */
 const checkpointKey = (viewerId: string) => `unfolks-scan-checkpoint:${viewerId}`;
 
-let viewer: InstagramViewer | undefined;
+let viewer: ViewerProfile | undefined;
 let setup: Promise<Instagram> | null = null;
 let scanning = false;
 let lastProgress: ScanProgress | null = null;
@@ -69,6 +79,65 @@ function pushViewer() {
   send({ type: TYPES.SET_VIEWER_DATA, viewer });
 }
 
+async function readStoredSession(): Promise<unknown> {
+  try {
+    const stored = await chrome.storage.local.get(SESSION_KEY);
+    return stored[SESSION_KEY];
+  } catch (error) {
+    console.error('Failed to read saved session', error);
+    return undefined;
+  }
+}
+
+async function storeSession(session: InstagramSession | null) {
+  try {
+    const cached = session ? createSessionCache(session, Date.now()) : null;
+    if (cached) await chrome.storage.local.set({ [SESSION_KEY]: cached });
+    else await chrome.storage.local.remove(SESSION_KEY);
+  } catch (error) {
+    console.error('Failed to save session', error);
+  }
+}
+
+/**
+ * The logged-in account's session. While the `ds_user_id` cookie still names
+ * the account saved last time, the saved copy is used instead of asking
+ * Instagram again, which runs into its rate limit on busy days.
+ */
+async function loadSession(): Promise<InstagramSession> {
+  const userId = readLoggedInUserId(document.cookie);
+  const stored = userId ? await readStoredSession() : undefined;
+  const now = Date.now();
+
+  if (userId) {
+    const cached = readSessionCache(stored, userId, now);
+    if (cached) return cached;
+  }
+
+  try {
+    const sharedData = await getSharedData();
+    if (!sharedData) throw new Error('Instagram session data is unavailable');
+    const { viewerId, csrf_token: csrfToken, viewer: fullViewer } = sharedData.config;
+    const session: InstagramSession = {
+      config: { viewerId, csrf_token: csrfToken, viewer: toViewerProfile(fullViewer) },
+    };
+    await storeSession(session);
+    return session;
+  } catch (error) {
+    if (error instanceof AuthenticationError) {
+      await storeSession(null);
+      throw error;
+    }
+    // Rate limited or Instagram is down: an older copy of the same account still works.
+    const stale = userId ? readSessionCache(stored, userId, now, SESSION_CACHE_MAX_STALE_MS) : null;
+    if (stale) return stale;
+    // Nothing saved: the cookies are enough to scan, only the profile card stays empty.
+    const fromCookies = createCookieSession(document.cookie);
+    if (fromCookies) return fromCookies;
+    throw error;
+  }
+}
+
 /**
  * Load the session once. A failed attempt is dropped so the next request tries
  * again, instead of leaving this tab unable to scan until it is reloaded.
@@ -76,12 +145,10 @@ function pushViewer() {
 function ensureInstagram(): Promise<Instagram> {
   if (!setup) {
     const attempt = (async () => {
-      const sharedData = await getSharedData();
-      if (!sharedData) throw new Error('Instagram session data is unavailable');
-
-      viewer = sharedData.config.viewer;
+      const session = await loadSession();
+      viewer = session.config.viewer;
       pushViewer();
-      return new Instagram(sharedData);
+      return new Instagram(session);
     })();
     setup = attempt;
     attempt.catch(() => {
@@ -258,7 +325,9 @@ async function unfollow(request: Request & { user: User }) {
   try {
     const instagram = await ensureInstagram();
     // The list may have been scanned with another account; this tab would unfollow from the current one.
-    if (request.expectedViewer && viewer && !isSameViewer(request.expectedViewer, viewer)) {
+    // Without profile data the account id from the cookie still identifies this account.
+    const current = viewer ?? { id: instagram.viewerId, username: '' };
+    if (request.expectedViewer && !isSameViewer(request.expectedViewer, current)) {
       throw new AccountMismatchError();
     }
 

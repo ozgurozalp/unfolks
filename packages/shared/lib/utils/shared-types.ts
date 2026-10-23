@@ -55,7 +55,7 @@ export type Request = {
   deletedId?: string;
   status?: boolean;
   errorMessage?: string;
-  viewer?: InstagramViewer;
+  viewer?: ViewerProfile;
   phase?: ProgressPhase;
   current?: number;
   total?: number;
@@ -74,6 +74,8 @@ export type Request = {
   stopReason?: ScanStopReason;
   /** SCAN_STOPPED / ERROR: one line with version, position and what Instagram sent. */
   errorDetail?: string;
+  /** Set by the background on messages that waited for the panel to reopen. */
+  deliveredLate?: boolean;
   /** SCAN_STOPPED / CHECKPOINT_INFO: the saved progress, or null when there is none. */
   checkpoint?: CheckpointSummary | null;
 };
@@ -131,6 +133,23 @@ interface InstagramConfig {
   csrf_token: string;
   viewer: InstagramViewer;
   viewerId: string;
+}
+
+/** The only profile fields the extension keeps: what the profile card and account checks need. */
+export type ViewerProfile = Pick<
+  InstagramViewer,
+  'id' | 'fbid' | 'username' | 'full_name' | 'profile_pic_url' | 'profile_pic_url_hd'
+>;
+
+export function toViewerProfile(viewer: ViewerProfile): ViewerProfile {
+  return {
+    id: viewer.id,
+    fbid: viewer.fbid,
+    username: viewer.username,
+    full_name: viewer.full_name,
+    profile_pic_url: viewer.profile_pic_url,
+    profile_pic_url_hd: viewer.profile_pic_url_hd,
+  };
 }
 
 export interface InstagramViewer {

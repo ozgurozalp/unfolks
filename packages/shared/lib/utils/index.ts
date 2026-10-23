@@ -6,3 +6,4 @@ export * from './sentry';
 export * from './pacing';
 export * from './scan-checkpoint';
 export * from './instagram-export';
+export * from './session-cache';

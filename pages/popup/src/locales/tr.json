@@ -40,6 +40,7 @@
     "newUnfollowersWarning_other": "{{count}} kişi sizi takipten çıkmış olabilir",
     "rateLimitWarning": "Başka bir hesabı takipten çıkmadan önce lütfen {{seconds}} saniye bekleyin",
     "listUpdated": "Liste güncellendi",
+    "scanFinishedWhileClosed": "Panel kapalıyken tarama bitti. Liste güncel.",
     "scanning": "Taranıyor",
     "scanningPercent": "Taranıyor %{{percent}}",
     "scanningCount": "Taranıyor ({{count}})",

@@ -40,6 +40,7 @@
     "newUnfollowersWarning_other": "{{count}} people may have unfollowed you",
     "rateLimitWarning": "Please wait {{seconds}} seconds before unfollowing another account",
     "listUpdated": "List has been updated",
+    "scanFinishedWhileClosed": "The scan finished while the panel was closed. The list is up to date.",
     "scanning": "Scanning…",
     "scanningPercent": "Scanning {{percent}}%",
     "scanningCount": "Scanning ({{count}})",
