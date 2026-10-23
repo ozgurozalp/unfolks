@@ -32,6 +32,8 @@
     "build:firefox": "pnpm clean:bundle && turbo ready && cross-env __FIREFOX__=true turbo build",
     "zip": "pnpm build && pnpm -F zipper zip",
     "zip:firefox": "pnpm build:firefox && cross-env __FIREFOX__=true pnpm -F zipper zip",
+    "release": "node scripts/chrome-web-store.mjs --check-env && pnpm zip && node scripts/chrome-web-store.mjs",
+    "release:upload": "node scripts/chrome-web-store.mjs --check-env && pnpm zip && node scripts/chrome-web-store.mjs --upload-only",
     "dev": "turbo ready && cross-env __DEV__=true turbo watch dev --concurrency 20",
     "dev:firefox": "turbo ready && cross-env __DEV__=true __FIREFOX__=true turbo watch dev --concurrency 20",
     "e2e": "pnpm build && pnpm zip && turbo e2e",
