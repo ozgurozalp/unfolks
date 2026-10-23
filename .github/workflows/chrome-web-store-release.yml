@@ -1,0 +1,54 @@
+name: Chrome Web Store release
+
+# Manual only. Builds dist-zip/extension.zip from the selected ref, uploads it to the
+# Chrome Web Store and, unless "Upload only" is ticked, submits it for review.
+on:
+  workflow_dispatch:
+    inputs:
+      upload_only:
+        description: Upload a draft without submitting it for review
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chrome-web-store-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: chrome-web-store
+    env:
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+      CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build, upload and submit
+        if: ${{ !inputs.upload_only }}
+        run: pnpm release
+
+      - name: Build and upload draft
+        if: ${{ inputs.upload_only }}
+        run: pnpm release:upload
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: extension-zip
+          path: dist-zip/extension.zip
+          if-no-files-found: ignore

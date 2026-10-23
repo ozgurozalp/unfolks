@@ -176,12 +176,54 @@ https://ozgurozalp.com
 | 1.3.1 | 2026-09-14 | Previous public build. | Draft |
 
 
+## Publishing from the Command Line
+
+`pnpm release` builds `dist-zip/extension.zip` with `pnpm zip`, uploads it to item `idgjpjkoddplmbdepekendpdbaibcgpc` with the [Chrome Web Store API v2](https://developer.chrome.com/docs/webstore/using-api), and submits it for review. `pnpm release:upload` stops after the upload and leaves a draft to submit from the dashboard. Both check the credentials first and exit before building if any are missing. The script is `scripts/chrome-web-store.mjs`.
+
+The v1.1 API was only supported until 2026-10-15, so the script uses v2 (`chromewebstore.googleapis.com/v2/publishers/{publisherId}/items/{itemId}`).
+
+### Credentials
+
+| Variable | Where it comes from |
+|----------|---------------------|
+| `CWS_CLIENT_ID` | OAuth client ID (step 3 below) |
+| `CWS_CLIENT_SECRET` | OAuth client secret (step 3 below) |
+| `CWS_REFRESH_TOKEN` | OAuth Playground (step 4 below) |
+| `CWS_PUBLISHER_ID` | Developer Dashboard → Publisher → Settings |
+| `CWS_EXTENSION_ID` | Optional. Defaults to `idgjpjkoddplmbdepekendpdbaibcgpc` |
+
+Locally, export them in your shell or put them in a root `.env` file (gitignored; the names are listed in `.example.env`). Never commit real values.
+
+### One-Time OAuth Setup
+
+Use the Google account that owns the store item. It needs 2-Step Verification turned on.
+
+1. **Project and API:** In the [Google Cloud Console](https://console.cloud.google.com/), create or pick a project. Open APIs & Services → Library, search for "Chrome Web Store API" and enable it.
+2. **Consent screen:** In APIs & Services → OAuth consent screen (Google Auth Platform), choose **External**, fill in the app name, support email and developer contact, skip scopes, and add your own email as a test user. Then **publish the app** (move it to "In production"). Apps left in "Testing" issue refresh tokens that expire after 7 days. Google may show an "unverified app" warning when you authorize; that is expected for a personal tool.
+3. **OAuth client:** In APIs & Services → Credentials, choose Create credentials → OAuth client ID, application type **Web application**. Add `https://developers.google.com/oauthplayground` under Authorized redirect URIs. Save the client ID and client secret.
+4. **Refresh token:** Open the [OAuth 2.0 Playground](https://developers.google.com/oauthplayground). In the gear menu, tick "Use your own OAuth credentials" and paste the client ID and secret. In "Input your own scopes", enter `https://www.googleapis.com/auth/chromewebstore`, click Authorize APIs, sign in with the owner account and allow access. Click "Exchange authorization code for tokens" and copy the **refresh token**.
+5. **Publisher ID:** In the [Developer Dashboard](https://chrome.google.com/webstore/devconsole), open Publisher → Settings and copy the publisher ID.
+
+If a refresh token stops working (revoked, password change, or 6 months unused), repeat step 4.
+
+### Release Steps
+
+1. Bump the version in the root `package.json` and add a row to Version History above.
+2. Update the listing text, screenshots or privacy answers in the dashboard if they changed. The API only uploads the package and submits it.
+3. Run `pnpm release` (or `pnpm release:upload` to review the draft in the dashboard first).
+4. The script prints the item state, usually `PENDING_REVIEW`. Set the Version History status to "Submitted".
+
+### GitHub Actions
+
+`.github/workflows/chrome-web-store-release.yml` does the same on demand (Actions → Chrome Web Store release → Run workflow, with an "Upload only" option). Add `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` and `CWS_PUBLISHER_ID` as repository secrets, or as secrets of the `chrome-web-store` environment the job runs in. Adding required reviewers to that environment makes every run wait for approval. The built zip is attached to the run as an artifact.
+
 ## Review Notes
 
 ### Known Issues / Limitations
 - Privacy policy URL is the GitHub file on `main`. Merge the 1.4.0 PR before submitting so the URL shows the updated policy.
 - The listing name includes "Instagram" because the extension only works there. Do not use Instagram's logo in screenshots.
 - Upload `dist-zip/extension.zip` produced by `pnpm zip`. It puts `manifest.json` at the archive root and excludes `.git`, `node_modules`, `CHROMEWEBSTORE.md`, and `PRIVACY.md`.
+- To upload and submit without the dashboard, run `pnpm release` (see Publishing from the Command Line above). It uploads the same `dist-zip/extension.zip`.
 - Do NOT upload a Finder-made `dist.zip`. Finder nests everything under a `dist/` folder and adds `__MACOSX/._*` entries, so the store cannot find `manifest.json` and rejects the upload.
 - Versions 1.3.2 through 1.4.1 added no new permissions or hosts; the Permissions Justification table above is still accurate.
 - Sentry is compiled into the extension. The data disclosure form must list crash reporting.
