@@ -345,6 +345,21 @@ describe('Instagram unfollow', () => {
     expect(calls).toEqual(['POST /api/graphql']);
   });
 
+  it('unfollows as the cookie account when there is no profile data', async () => {
+    let actorId: string | undefined;
+    installFetch([
+      (url, init) => {
+        if (url.pathname !== '/api/graphql') return undefined;
+        actorId = (init?.body as URLSearchParams).get('av') ?? undefined;
+        return json({ data: { xdt_destroy: { friendship_status: { following: false } } } });
+      },
+    ]);
+
+    const cookieOnly = new Instagram({ config: { viewerId: '42', csrf_token: 'abc' } });
+    await expect(cookieOnly.unFollow(target)).resolves.toEqual({ status: true, deletedId: '9' });
+    expect(actorId).toBe('42');
+  });
+
   it('asks Instagram whether the follow is gone when the mutation only says ok', async () => {
     const calls = installFetch([
       url => (url.pathname === '/api/graphql' ? json({ data: { xdt_destroy: {} }, status: 'ok' }) : undefined),

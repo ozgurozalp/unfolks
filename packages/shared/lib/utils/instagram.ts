@@ -33,6 +33,7 @@ import {
 } from './instagram-utils';
 import { SCAN_PACING, type ScanPacing } from './pacing';
 import { createCheckpoint, SCAN_COOLDOWN_MS, type ScanCheckpoint } from './scan-checkpoint';
+import type { InstagramSession } from './session-cache';
 
 const IG_WEB_APP_ID = '936619743392459';
 const FRIENDSHIP_PAGE_SIZE = 200;
@@ -150,7 +151,7 @@ export function scanStopMessage(reason: ScanStopReason): string {
 }
 
 export class Instagram {
-  sharedData: InstagramSharedData;
+  sharedData: InstagramSession;
   /** The scan's progress; read it after a failure to save it for Resume. */
   checkpoint: ScanCheckpoint | null = null;
   lastHttp: LastHttpFailure | null = null;
@@ -163,7 +164,7 @@ export class Instagram {
   private lastCheckpointEmit = 0;
   private lastProgress: ScanProgress | null = null;
 
-  constructor(sharedData: InstagramSharedData) {
+  constructor(sharedData: InstagramSession) {
     this.sharedData = sharedData;
   }
 
@@ -446,7 +447,7 @@ export class Instagram {
     const tokens = await this.readGraphqlTokens();
     if (!tokens) return 'failed';
 
-    const actorId = this.sharedData.config.viewer.fbid || this.sharedData.config.viewerId;
+    const actorId = this.sharedData.config.viewer?.fbid || this.sharedData.config.viewerId;
     const headers: Record<string, string> = {
       'x-fb-friendly-name': UNFOLLOW_FRIENDLY_NAME,
       'x-fb-lsd': tokens.lsd,
@@ -777,6 +778,8 @@ export async function getSharedData(): Promise<InstagramSharedData | undefined> 
   if (res.status === 401 || res.status === 403) {
     throw new AuthenticationError(t('authError'));
   }
+  // A rate limit or outage is not a logout; the caller may fall back to a saved session.
+  if (!res.ok) throw new Error(`Failed to load Instagram session (${res.status})`);
 
   const data = (await res.json()) as InstagramSharedData;
   // Logged out: shared data still loads, but without a viewer.

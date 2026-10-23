@@ -7,9 +7,10 @@ import {
   normalizeUnfollowPacing,
   resolveScanSpeed,
   resolveUserSortKey,
+  toViewerProfile,
   withoutTransientState,
   type CheckpointSummary,
-  type InstagramViewer,
+  type ViewerProfile,
   type ScanSpeed,
   type UnfollowPacing,
   type User,
@@ -71,8 +72,8 @@ export interface MainStore {
   hasInstagramTab: boolean;
   lastScannedAt: number | null;
   blockedUntil: number | null;
-  viewer: InstagramViewer | null;
-  setViewer: (viewer: InstagramViewer | null) => void;
+  viewer: ViewerProfile | null;
+  setViewer: (viewer: ViewerProfile | null) => void;
   setUnfollowers: (unfollowers: User[]) => void;
   clearUnfollowers: () => void;
   removeUnfollower: (id: string) => void;
@@ -203,6 +204,8 @@ export const useMainStore = create<MainStore>()(
             // Older versions saved the spinner flag; drop it on load too.
             unfollowers: stored?.unfollowers ? withoutTransientState(stored.unfollowers) : current.unfollowers,
             sortKey: readStoredSortKey(),
+            // Older versions saved the whole Instagram profile; keep only the card fields.
+            viewer: stored?.viewer ? toViewerProfile(stored.viewer) : current.viewer,
             hiddenIds: stored?.hiddenIds && typeof stored.hiddenIds === 'object' ? stored.hiddenIds : {},
             scanSpeed: resolveScanSpeed(stored?.scanSpeed),
             unfollowPacing: normalizeUnfollowPacing(stored?.unfollowPacing),

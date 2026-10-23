@@ -110,6 +110,13 @@ function Popup() {
             position: 'bottom-center',
             duration: 5000,
           });
+        } else if (request.deliveredLate) {
+          // The list may look unchanged, so say plainly that it is fresh.
+          toast.success(t('scanFinishedWhileClosed'), {
+            id: 'list-updated',
+            position: 'bottom-center',
+            duration: 10000,
+          });
         } else if (previous !== null) {
           toast.success(t('listUpdated'), {
             id: 'list-updated',

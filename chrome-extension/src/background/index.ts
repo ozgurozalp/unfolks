@@ -71,7 +71,8 @@ async function flushBufferTo(port: chrome.runtime.Port) {
 
   for (const [type, message] of Object.entries(memoryBuffer)) {
     try {
-      port.postMessage(message);
+      // Tells the panel this arrived while it was closed, so it can say so.
+      port.postMessage({ ...(message as object), deliveredLate: true });
     } catch (error) {
       console.error('Failed to flush buffered message', error);
       remaining[type] = message;
