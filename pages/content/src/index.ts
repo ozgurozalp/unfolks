@@ -4,6 +4,7 @@ import {
   actionBlockedError,
   AuthenticationError,
   captureException,
+  buildScanReport,
   createCookieSession,
   createSessionCache,
   getSharedData,
@@ -19,6 +20,7 @@ import {
   toViewerProfile,
   scanStopMessage,
   resolveScanSpeed,
+  ScanCancelledError,
   ScanStoppedError,
   summarizeCheckpoint,
   TYPES,
@@ -42,6 +44,7 @@ const checkpointKey = (viewerId: string) => `unfolks-scan-checkpoint:${viewerId}
 let viewer: ViewerProfile | undefined;
 let setup: Promise<Instagram> | null = null;
 let scanning = false;
+let scanAbort: AbortController | null = null;
 let lastProgress: ScanProgress | null = null;
 let rateLimitUntil = 0;
 
@@ -255,6 +258,16 @@ function stopReasonOf(error: unknown): ScanStopReason {
 
 /** Keep the progress of a scan that stopped, and tell the panel it can resume. */
 async function handleScanFailure(instagram: Instagram, error: unknown) {
+  if (error instanceof ScanCancelledError) {
+    // Cancelling is the user's call, so there is no wait: whatever was loaded stays for Resume.
+    const checkpoint = instagram.checkpoint;
+    const keep = checkpoint && hasProgress(checkpoint);
+    if (keep) await saveCheckpoint(checkpoint);
+    else await clearCheckpoint(instagram.viewerId);
+    send({ type: TYPES.SCAN_CANCELLED, checkpoint: keep ? summarizeCheckpoint(checkpoint) : null });
+    return;
+  }
+
   const errorDetail = describeFailure(instagram, error);
   const reason = stopReasonOf(error);
   const checkpoint = instagram.checkpoint;
@@ -285,6 +298,7 @@ async function scan(request: Request) {
   }
 
   scanning = true;
+  scanAbort = new AbortController();
   let instagram: Instagram | null = null;
   try {
     instagram = await ensureInstagram();
@@ -309,6 +323,7 @@ async function scan(request: Request) {
       resume,
       onProgress: pushProgress,
       onCheckpoint: checkpoint => void saveCheckpoint(checkpoint),
+      signal: scanAbort.signal,
     });
     await clearCheckpoint(instagram.viewerId);
     send({ users, viewer, incomplete, type: TYPES.SET_PEOPLE });
@@ -317,6 +332,7 @@ async function scan(request: Request) {
     else reportFailure(error);
   } finally {
     scanning = false;
+    scanAbort = null;
     lastProgress = null;
   }
 }
@@ -348,6 +364,23 @@ async function unfollow(request: Request & { user: User }) {
   } catch (error) {
     reportFailure(error, request.user);
   }
+}
+
+/** Builds the bug report the panel puts in an email. */
+async function sendLogs(request: Request) {
+  const instagram = await ensureInstagram().catch(() => null);
+  const report = buildScanReport({
+    version: chrome.runtime.getManifest().version,
+    detail: request.errorDetail,
+    note: request.errorMessage,
+    progress: instagram?.progress ?? lastProgress,
+    lastHttp: instagram?.lastHttp ?? null,
+    scanning,
+    tabHidden: document.visibilityState === 'hidden',
+    userAgent: navigator.userAgent,
+    log: instagram?.log ?? [],
+  });
+  send({ type: TYPES.LOGS_REPORT, report });
 }
 
 async function discardCheckpoint() {
@@ -383,6 +416,12 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       return;
     case TYPES.GET_CHECKPOINT:
       if (!scanning) void pushCheckpointInfo();
+      return;
+    case TYPES.CANCEL_SCAN:
+      scanAbort?.abort();
+      return;
+    case TYPES.SEND_LOGS:
+      void sendLogs(request);
       return;
     case TYPES.DISCARD_CHECKPOINT:
       if (!scanning) void discardCheckpoint();

@@ -1,4 +1,5 @@
 import {
+  buildReportMailto,
   findNewUnfollowers,
   isSameViewer,
   TYPES,
@@ -15,6 +16,7 @@ import UserList from '@src/components/UserList';
 import ProfileCard from '@src/components/ProfileCard';
 import Onboarding from '@src/components/Onboarding';
 import ScanStatus from '@src/components/ScanStatus';
+import SlowScanNotice from '@src/components/SlowScanNotice';
 import SettingsDialog from '@src/components/SettingsDialog';
 import ExportView from '@src/components/ExportView';
 import { useMainStore } from '@src/store';
@@ -28,6 +30,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { enUS, tr } from 'date-fns/locale';
 
 const DEFAULT_COOLDOWN_MS = 15 * 60 * 1000;
+/** A first scan running this long gets a Cancel option. */
+const SLOW_SCAN_MS = 3 * 60 * 1000;
 
 function Popup() {
   const { t, i18n } = useTranslation();
@@ -45,6 +49,7 @@ function Popup() {
     setViewer,
     checkpoint,
     setCheckpoint,
+    scanIssue,
     setScanIssue,
     scanSpeed,
     clearSelection,
@@ -54,6 +59,7 @@ function Popup() {
   const [view, setView] = useState<'main' | 'export'>('main');
   const [tabHidden, setTabHidden] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingSince, setLoadingSince] = useState<number | null>(null);
   const [progress, setProgress] = useState<{ current: number; total: number } | null>(null);
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -68,6 +74,7 @@ function Popup() {
 
   const stopLoading = () => {
     setLoading(false);
+    setLoadingSince(null);
     setProgress(null);
     setRetryUntil(null);
     setTabHidden(false);
@@ -152,12 +159,26 @@ function Popup() {
         toast.error(message, { id: 'scan-stopped', position: 'bottom-center', duration: 8000 });
         break;
       }
+      case TYPES.SCAN_CANCELLED: {
+        stopLoading();
+        setCheckpoint(request.checkpoint ?? null);
+        setScanIssue(null);
+        toast.info(t('scanCancelled'), { id: 'scan-cancelled', position: 'bottom-center' });
+        break;
+      }
+      case TYPES.LOGS_REPORT: {
+        if (!request.report) break;
+        window.location.href = buildReportMailto(request.report);
+        toast.success(t('logsEmailOpened'), { id: 'logs-email', position: 'bottom-center' });
+        break;
+      }
       case TYPES.CHECKPOINT_INFO: {
         setCheckpoint(request.checkpoint ?? null);
         break;
       }
       case TYPES.PROGRESS: {
         setLoading(true);
+        setLoadingSince(since => since ?? Date.now());
         if (typeof request.current === 'number' && typeof request.total === 'number') {
           setProgress({ current: request.current, total: request.total });
         }
@@ -277,6 +298,7 @@ function Popup() {
 
     try {
       setLoading(true);
+      setLoadingSince(Date.now());
       setProgress(null);
       setRetryUntil(null);
       setScanIssue(null);
@@ -288,6 +310,13 @@ function Popup() {
       });
       stopLoading();
     }
+  };
+
+  const cancelScan = () => {
+    sendMessage({ type: TYPES.CANCEL_SCAN }).catch(() => {
+      // The tab is gone, so nothing is scanning any more.
+      stopLoading();
+    });
   };
 
   const discardCheckpoint = () => {
@@ -314,6 +343,7 @@ function Popup() {
           : t('scanning')
     : idleButtonText;
   const firstTime = unfollowers === null;
+  const scanIsSlow = firstTime && loading && loadingSince !== null && now - loadingSince >= SLOW_SCAN_MS;
 
   const lastScanNote = lastScannedAt ? (
     <p className="truncate text-xs leading-none text-muted-foreground">
@@ -454,6 +484,8 @@ function Popup() {
             )}
           </div>
         )}
+
+        {scanIsSlow && <SlowScanNotice onCancel={cancelScan} detail={scanIssue?.detail} />}
 
         {isBlocked && (
           <div className="mt-3 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">

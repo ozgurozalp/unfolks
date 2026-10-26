@@ -6,6 +6,7 @@ import formatDuration from '@src/helpers/formatDuration';
 import sendMessage from '@src/helpers/sendMessage';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
+import SendLogsButton from '@src/components/SendLogsButton';
 import { Copy, PauseCircle, Play, RotateCcw } from 'lucide-react';
 
 interface ScanStatusProps {
@@ -86,6 +87,10 @@ export default function ScanStatus({ loading, onResume, onDiscard }: ScanStatusP
             <Copy className="size-3.5" />
           </Button>
         </div>
+      )}
+
+      {scanIssue?.detail && (
+        <SendLogsButton detail={scanIssue.detail} message={scanIssue.message} className="justify-self-start" />
       )}
 
       {hasInstagramTab && canResume && (

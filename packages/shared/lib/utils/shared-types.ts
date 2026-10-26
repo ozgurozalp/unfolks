@@ -74,6 +74,8 @@ export type Request = {
   stopReason?: ScanStopReason;
   /** SCAN_STOPPED / ERROR: one line with version, position and what Instagram sent. */
   errorDetail?: string;
+  /** LOGS_REPORT: the plain-text report to put in the email. */
+  report?: string;
   /** Set by the background on messages that waited for the panel to reopen. */
   deliveredLate?: boolean;
   /** SCAN_STOPPED / CHECKPOINT_INFO: the saved progress, or null when there is none. */
@@ -96,6 +98,10 @@ export enum TYPES {
   GET_CHECKPOINT = 'GET_CHECKPOINT',
   CHECKPOINT_INFO = 'CHECKPOINT_INFO',
   DISCARD_CHECKPOINT = 'DISCARD_CHECKPOINT',
+  CANCEL_SCAN = 'CANCEL_SCAN',
+  SCAN_CANCELLED = 'SCAN_CANCELLED',
+  SEND_LOGS = 'SEND_LOGS',
+  LOGS_REPORT = 'LOGS_REPORT',
 }
 
 export interface InstagramSharedData {
