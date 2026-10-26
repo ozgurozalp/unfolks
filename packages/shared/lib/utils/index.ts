@@ -7,3 +7,4 @@ export * from './pacing';
 export * from './scan-checkpoint';
 export * from './instagram-export';
 export * from './session-cache';
+export * from './scan-report';

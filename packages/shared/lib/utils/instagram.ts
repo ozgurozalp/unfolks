@@ -58,6 +58,8 @@ const BACKOFF_BASE_MS = 2000;
 const TOKEN_RETRY_MS = 60_000;
 /** Saved "does not follow back" answers older than this are asked again on Resume. */
 const STALE_ANSWER_MS = 30 * 60 * 1000;
+/** How many scan events the log keeps. */
+const MAX_LOG_LINES = 40;
 /** The checkpoint is handed out at most this often while a scan runs. */
 const CHECKPOINT_EMIT_MS = 4000;
 /** Local cooldown enforced after Instagram soft-blocks an action. */
@@ -88,6 +90,8 @@ export interface ScanOptions {
   onProgress?: ProgressCallback;
   /** Receives the latest progress every few seconds while the scan runs. */
   onCheckpoint?: (checkpoint: ScanCheckpoint) => void;
+  /** Aborting stops the scan at once, mid-request or mid-wait, and keeps its progress. */
+  signal?: AbortSignal;
 }
 
 /** The last thing Instagram answered when a request failed, for the error line. */
@@ -129,6 +133,14 @@ export class ScanStoppedError extends Error {
   }
 }
 
+/** The user stopped the scan. Unlike ScanStoppedError there is no wait before trying again. */
+export class ScanCancelledError extends Error {
+  constructor() {
+    super('Scan cancelled');
+    this.name = 'ScanCancelledError';
+  }
+}
+
 /** The unfollow block, with the time left on it. */
 export function actionBlockedError(cooldownMs: number): ActionBlockedError {
   return new ActionBlockedError(t('actionBlocked'), cooldownMs);
@@ -155,6 +167,9 @@ export class Instagram {
   /** The scan's progress; read it after a failure to save it for Resume. */
   checkpoint: ScanCheckpoint | null = null;
   lastHttp: LastHttpFailure | null = null;
+  /** The latest scan events (failures, waits), kept for the "send logs" report. */
+  readonly log: string[] = [];
+  private signal?: AbortSignal;
   private pacing: ScanPacing = SCAN_PACING.fast;
   private graphqlTokens: GraphqlTokens | null | undefined;
   /** When reading tokens last failed; the home page is not fetched again for a minute. */
@@ -183,6 +198,7 @@ export class Instagram {
       options.onProgress?.(progress);
     };
     this.emitCheckpoint = options.onCheckpoint;
+    this.signal = options.signal;
     this.lastProgress = null;
     this.lastHttp = null;
     this.checkpoint = options.resume ? this.prepareResume(options.resume) : createCheckpoint(this.viewerId, Date.now());
@@ -190,9 +206,14 @@ export class Instagram {
     try {
       await this.collectFollowing();
       return await this.resolveFollowBack();
+    } catch (error) {
+      // An aborted fetch rejects with an AbortError; the caller only needs to know it was a cancel.
+      if (this.signal?.aborted) throw new ScanCancelledError();
+      throw error;
     } finally {
       this.scanProgress = undefined;
       this.emitCheckpoint = undefined;
+      this.signal = undefined;
     }
   }
 
@@ -397,6 +418,7 @@ export class Instagram {
       mode: 'cors',
       credentials: 'include',
       body: new URLSearchParams(fields),
+      signal: this.signal,
     });
   }
 
@@ -550,7 +572,7 @@ export class Instagram {
       done += chunk.length;
       onDone?.(done);
       if (i + SHOW_MANY_BATCH < users.length) {
-        await delay(randomBetween(SHOW_MANY_GAP_MIN_MS, SHOW_MANY_GAP_MAX_MS));
+        await this.wait(randomBetween(SHOW_MANY_GAP_MIN_MS, SHOW_MANY_GAP_MAX_MS));
       }
     }
 
@@ -650,23 +672,49 @@ export class Instagram {
     return url.toString();
   }
 
+  /** Sleep that ends early, with a cancel, when the scan is aborted. */
+  private wait(ms: number): Promise<void> {
+    const { signal } = this;
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new ScanCancelledError());
+        return;
+      }
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new ScanCancelledError());
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private note(line: string) {
+    this.log.push(`${new Date().toISOString().slice(11, 19)} ${line}`);
+    if (this.log.length > MAX_LOG_LINES) this.log.splice(0, this.log.length - MAX_LOG_LINES);
+  }
+
   private async pacePage(page: number) {
     const pacing = this.pacing;
     if (page <= pacing.fastPages) {
-      await delay(randomBetween(pacing.fastDelayMinMs, pacing.fastDelayMaxMs));
+      await this.wait(randomBetween(pacing.fastDelayMinMs, pacing.fastDelayMaxMs));
       return;
     }
     if (pacing.pauseEveryPages > 0 && page % pacing.pauseEveryPages === 0) {
-      await delay(pacing.pauseMs + randomBetween(0, Math.max(1, Math.round(pacing.pauseMs * 0.3))));
+      await this.wait(pacing.pauseMs + randomBetween(0, Math.max(1, Math.round(pacing.pauseMs * 0.3))));
       return;
     }
-    await delay(randomBetween(pacing.delayMinMs, pacing.delayMaxMs));
+    await this.wait(randomBetween(pacing.delayMinMs, pacing.delayMaxMs));
   }
 
   private remember(status: number, body: unknown) {
     const record = body && typeof body === 'object' ? (body as { message?: unknown; error_type?: unknown }) : {};
     const message = [record.message, record.error_type].find(value => typeof value === 'string');
     this.lastHttp = { status, message: typeof message === 'string' ? message.slice(0, 120) : '' };
+    this.note(`HTTP ${this.lastHttp.status}${this.lastHttp.message ? ` "${this.lastHttp.message}"` : ''}`);
   }
 
   /**
@@ -683,7 +731,7 @@ export class Instagram {
     for (let attempt = 0; ; attempt += 1) {
       const response = form
         ? await this.postForm(url, form)
-        : await fetch(url, { headers: this.igHeaders(), credentials: 'include' });
+        : await fetch(url, { headers: this.igHeaders(), credentials: 'include', signal: this.signal });
 
       const text = await response.text();
       let body: unknown;
@@ -733,6 +781,7 @@ export class Instagram {
       const response = await fetch(`https://www.instagram.com/api/v1/users/${this.viewerId}/info/`, {
         headers: this.igHeaders(),
         credentials: 'include',
+        signal: this.signal,
       });
 
       if (!response.ok) return { following: null, followers: null };
@@ -751,8 +800,9 @@ export class Instagram {
     const retryAfter = Number(response.headers.get('retry-after'));
     const backoff = Math.min(MAX_RATE_WAIT_MS, Math.max(8000, BACKOFF_BASE_MS * 2 ** (attempt + 2)));
     const wait = retryAfter > 0 ? Math.min(MAX_RATE_WAIT_MS, retryAfter * 1000) : backoff;
+    this.note(`waiting ${Math.round(wait / 1000)}s before retry ${attempt + 1}`);
     this.notifyRateLimit(wait);
-    await delay(wait + randomBetween(0, 1000));
+    await this.wait(wait + randomBetween(0, 1000));
   }
 
   private notifyRateLimit(waitMs: number) {
@@ -764,10 +814,6 @@ export class Instagram {
       retryInMs: waitMs,
     });
   }
-}
-
-function delay(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 export async function getSharedData(): Promise<InstagramSharedData | undefined> {

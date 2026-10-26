@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@extension/i18n', () => ({ t: (key: string) => key }));
 
-import { Instagram, ScanStoppedError } from '../instagram';
+import { Instagram, ScanCancelledError, ScanStoppedError } from '../instagram';
 import type { InstagramSharedData } from '../shared-types';
 import type { ScanPacing } from '../pacing';
 import type { ScanCheckpoint } from '../scan-checkpoint';
@@ -421,5 +421,32 @@ describe('Instagram unfollow', () => {
 
     await expect(new Instagram(sharedData).unFollow(target)).resolves.toMatchObject({ status: true });
     expect(calls).toEqual(['GET /', 'POST /api/graphql']);
+  });
+});
+
+describe('cancelling a scan', () => {
+  beforeEach(() => {
+    vi.stubGlobal('document', { cookie: 'csrftoken=abc', querySelectorAll: () => [] });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('stops with ScanCancelledError and keeps the progress when aborted', async () => {
+    const controller = new AbortController();
+    installFetch([
+      url => {
+        if (url.pathname.includes('/info/')) return json({ user: { following_count: 10, follower_count: 10 } });
+        if (url.pathname.includes('/following/')) {
+          controller.abort();
+          return json({ status: 'ok', users: [user('1')], next_max_id: 'a', has_more: true });
+        }
+        return undefined;
+      },
+    ]);
+    const instagram = new Instagram(sharedData);
+
+    await expect(instagram.getPeople({ pacing: NO_DELAY, signal: controller.signal })).rejects.toBeInstanceOf(
+      ScanCancelledError,
+    );
+    expect(instagram.checkpoint?.following).toHaveLength(1);
   });
 });
