@@ -30,10 +30,10 @@
     "clean:install": "pnpm clean:node_modules && pnpm install --frozen-lockfile",
     "build": "pnpm clean:bundle && turbo ready && turbo build",
     "build:firefox": "pnpm clean:bundle && turbo ready && cross-env __FIREFOX__=true turbo build",
-    "zip": "pnpm build && pnpm -F zipper zip",
-    "zip:firefox": "pnpm build:firefox && cross-env __FIREFOX__=true pnpm -F zipper zip",
-    "release": "node scripts/chrome-web-store.mjs --check-env && pnpm zip && node scripts/chrome-web-store.mjs",
-    "release:upload": "node scripts/chrome-web-store.mjs --check-env && pnpm zip && node scripts/chrome-web-store.mjs --upload-only",
+    "zip": "pnpm build && node scripts/sentry-sourcemaps.mjs && pnpm -F zipper zip",
+    "zip:firefox": "pnpm build:firefox && node scripts/sentry-sourcemaps.mjs && cross-env __FIREFOX__=true pnpm -F zipper zip",
+    "release": "node scripts/chrome-web-store.mjs --check-env && pnpm build && node scripts/sentry-sourcemaps.mjs --require && pnpm -F zipper zip && node scripts/chrome-web-store.mjs",
+    "release:upload": "node scripts/chrome-web-store.mjs --check-env && pnpm build && node scripts/sentry-sourcemaps.mjs --require && pnpm -F zipper zip && node scripts/chrome-web-store.mjs --upload-only",
     "dev": "turbo ready && cross-env __DEV__=true turbo watch dev --concurrency 20",
     "dev:firefox": "turbo ready && cross-env __DEV__=true __FIREFOX__=true turbo watch dev --concurrency 20",
     "e2e": "pnpm build && pnpm zip && turbo e2e",
@@ -52,6 +52,7 @@
     "react-dom": "19.0.3"
   },
   "devDependencies": {
+    "@sentry/cli": "3.8.0",
     "@types/chrome": "^0.0.270",
     "@types/node": "^20.17.9",
     "@types/react": "19.0.3",

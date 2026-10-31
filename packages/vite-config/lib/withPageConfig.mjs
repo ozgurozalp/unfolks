@@ -25,7 +25,8 @@ export function withPageConfig(config) {
         base: '',
         plugins: [react(), isDev && watchRebuildPlugin({ refresh: true })],
         build: {
-          sourcemap: isDev,
+          // Production maps are 'hidden' (no sourceMappingURL comment); they go to Sentry and are removed before zipping.
+          sourcemap: isDev ? true : 'hidden',
           minify: isProduction,
           reportCompressedSize: isProduction,
           emptyOutDir: isProduction,
