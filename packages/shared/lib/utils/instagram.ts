@@ -1,5 +1,6 @@
 import type { InstagramSharedData, ScanProgress, ScanStopReason, User } from '.';
 import { t } from '@extension/i18n';
+import { fetchWithContext } from './network-error';
 import {
   classifyIgFailure,
   classifyNonJson,
@@ -160,6 +161,15 @@ export function scanStopMessage(reason: ScanStopReason): string {
   if (reason === 'limited') return t('scanLimitedList');
   if (reason === 'gap') return t('scanEmptyPages');
   return t('scanFailed');
+}
+
+/** The path of an Instagram URL, so reports name the request without its query string. */
+function endpointOf(url: string): string {
+  try {
+    return new URL(url, 'https://www.instagram.com').pathname;
+  } catch {
+    return url;
+  }
 }
 
 export class Instagram {
@@ -407,7 +417,7 @@ export class Instagram {
   }
 
   private async postForm(path: string, fields: Record<string, string>, extraHeaders: Record<string, string> = {}) {
-    return fetch(path, {
+    return fetchWithContext(endpointOf(path), path, {
       headers: {
         ...this.igHeaders(),
         'content-type': 'application/x-www-form-urlencoded',
@@ -731,7 +741,11 @@ export class Instagram {
     for (let attempt = 0; ; attempt += 1) {
       const response = form
         ? await this.postForm(url, form)
-        : await fetch(url, { headers: this.igHeaders(), credentials: 'include', signal: this.signal });
+        : await fetchWithContext(label, url, {
+            headers: this.igHeaders(),
+            credentials: 'include',
+            signal: this.signal,
+          });
 
       const text = await response.text();
       let body: unknown;
@@ -819,7 +833,7 @@ export class Instagram {
 export async function getSharedData(): Promise<InstagramSharedData | undefined> {
   if (!location.href.includes('instagram.com')) return;
 
-  const res = await fetch('/data/shared_data/');
+  const res = await fetchWithContext('shared_data', '/data/shared_data/');
 
   if (res.status === 401 || res.status === 403) {
     throw new AuthenticationError(t('authError'));

@@ -35,7 +35,8 @@ export default defineConfig({
     },
     outDir,
     emptyOutDir: false,
-    sourcemap: isDev,
+    // Production maps are 'hidden'; see packages/vite-config/lib/withPageConfig.mjs.
+    sourcemap: isDev ? true : 'hidden',
     minify: isProduction,
     reportCompressedSize: isProduction,
     watch: watchOption,

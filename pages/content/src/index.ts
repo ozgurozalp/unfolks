@@ -239,7 +239,7 @@ function reportFailure(error: unknown, user?: User, errorDetail?: string) {
     return;
   }
 
-  if (!user) captureException(error as Error);
+  if (!user) captureException(error as Error, errorDetail ? { detail: errorDetail } : undefined);
   send({
     status: false,
     type: TYPES.ERROR,
@@ -280,7 +280,7 @@ async function handleScanFailure(instagram: Instagram, error: unknown) {
 
   const stopped = markStopped(checkpoint, reason, Date.now());
   await saveCheckpoint(stopped);
-  if (reason === 'error') captureException(error as Error);
+  if (reason === 'error') captureException(error as Error, { detail: errorDetail });
 
   send({
     type: TYPES.SCAN_STOPPED,
