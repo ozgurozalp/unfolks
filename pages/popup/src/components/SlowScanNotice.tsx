@@ -21,12 +21,13 @@ export default function SlowScanNotice({ onCancel, detail }: SlowScanNoticeProps
           <p className="text-muted-foreground">{t('slowScanHint')}</p>
         </div>
       </div>
-      <div className="flex gap-2">
-        <Button size="sm" className="flex-1" onClick={onCancel}>
+      {/* The labels never break (Button is nowrap), so the row has to: side by side when both fit, stacked when not. flex-auto shares the spare width equally, so both labels get the same padding. */}
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" className="flex-auto" onClick={onCancel}>
           <X className="size-3.5" />
           {t('cancelScan')}
         </Button>
-        <SendLogsButton detail={detail} />
+        <SendLogsButton detail={detail} className="flex-auto" />
       </div>
     </div>
   );
