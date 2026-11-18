@@ -102,6 +102,8 @@ export enum TYPES {
   SCAN_CANCELLED = 'SCAN_CANCELLED',
   SEND_LOGS = 'SEND_LOGS',
   LOGS_REPORT = 'LOGS_REPORT',
+  /** Panel → background ping that keeps the worker, and so the port, alive. */
+  KEEPALIVE = 'KEEPALIVE',
 }
 
 export interface InstagramSharedData {

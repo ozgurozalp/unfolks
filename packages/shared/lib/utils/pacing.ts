@@ -109,3 +109,42 @@ export function normalizeUnfollowPacing(value: Partial<UnfollowPacing> | null | 
 export function shouldRestAfter(done: number, pacing: UnfollowPacing): boolean {
   return pacing.pauseEvery > 0 && pacing.pauseMs > 0 && done > 0 && done % pacing.pauseEvery === 0;
 }
+
+interface BulkEstimateInput {
+  /** Accounts handled so far. */
+  done: number;
+  total: number;
+  pacing: UnfollowPacing;
+  /** End of the rest in progress, if the batch is resting now. */
+  restingUntil?: number;
+  now?: number;
+}
+
+/**
+ * Rough time left in a batch: the average gap before each remaining account
+ * plus the rests still ahead. The first account goes out without a wait, the
+ * same as the batch loop. Instagram's own response time is left out, so this
+ * runs a little short.
+ */
+export function estimateBulkRemainingMs({
+  done,
+  total,
+  pacing,
+  restingUntil,
+  now = Date.now(),
+}: BulkEstimateInput): number {
+  if (done >= total) return 0;
+
+  const averageGap = (pacing.gapMinMs + pacing.gapMaxMs) / 2;
+  let remaining = 0;
+  for (let handled = done; handled < total; handled += 1) {
+    if (handled === 0) continue;
+    if (handled === done && restingUntil !== undefined) {
+      remaining += Math.max(0, restingUntil - now);
+    } else if (shouldRestAfter(handled, pacing)) {
+      remaining += pacing.pauseMs;
+    }
+    remaining += averageGap;
+  }
+  return remaining;
+}
