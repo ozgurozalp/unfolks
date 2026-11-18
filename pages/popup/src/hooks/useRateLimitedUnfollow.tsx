@@ -14,6 +14,25 @@ const RATE_WINDOW_MS = 3000;
 const SLEEP_STEP_MS = 250;
 /** Failures in a row before a batch gives up instead of hammering Instagram. */
 const MAX_FAILURE_STREAK = 3;
+/**
+ * The tab answers every unfollow, but an answer can still be lost (the tab
+ * reloaded mid-request). The spinner then gives up so the row can be retried;
+ * retrying an account already unfollowed just confirms it and removes it.
+ */
+const UNFOLLOW_ANSWER_TIMEOUT_MS = 90_000;
+
+const answerTimers = new Map<string, number>();
+
+/** Clear a row's spinner if no answer came for its latest request in time. */
+const watchForAnswer = (userId: string) => {
+  window.clearTimeout(answerTimers.get(userId));
+  const timer = window.setTimeout(() => {
+    answerTimers.delete(userId);
+    const { unfollowers, changeUserLoading } = useMainStore.getState();
+    if (unfollowers?.some(user => user.id === userId && user.unFollowLoading)) changeUserLoading(userId, false);
+  }, UNFOLLOW_ANSWER_TIMEOUT_MS);
+  answerTimers.set(userId, timer);
+};
 
 export type BulkState = {
   total: number;
@@ -78,6 +97,7 @@ export function RateLimiterProvider({ children }: RateLimiterProviderProps) {
           // Lets the tab refuse if a different account is logged in there now.
           expectedViewer: viewer ? { id: viewer.id, username: viewer.username } : undefined,
         });
+        watchForAnswer(user.id);
       } catch (error) {
         changeUserLoading(user.id, false);
         toast.error(t('notConnected'), { id: 'connection-error', position: 'bottom-center' });

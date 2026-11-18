@@ -1,4 +1,5 @@
-import type { User } from '@extension/shared';
+import { useMemo } from 'react';
+import { estimateBulkRemainingMs, type User } from '@extension/shared';
 import {
   AlertDialog,
   AlertDialogClose,
@@ -113,16 +114,33 @@ export default function BulkActions({ visible, selected, hiddenMode, selectionMo
 function BulkProgress() {
   const { t } = useTranslation();
   const { cancelBulk, bulkState } = useRateLimitedUnfollow();
-  const now = useNow(Boolean(bulkState?.restingUntil));
+  const pacing = useMainStore(state => state.unfollowPacing);
+  const now = useNow(Boolean(bulkState));
+  // Estimated when the batch moves on, then counted down between steps.
+  const estimate = useMemo(() => {
+    if (!bulkState) return null;
+    const at = Date.now();
+    return { at, ms: estimateBulkRemainingMs({ ...bulkState, pacing, now: at }) };
+  }, [bulkState, pacing]);
   if (!bulkState) return null;
 
   const percent = bulkState.total > 0 ? Math.round((bulkState.done / bulkState.total) * 100) : 0;
   const resting = bulkState.restingUntil && bulkState.restingUntil > now ? bulkState.restingUntil - now : 0;
+  const timeLeft = estimate ? Math.max(0, estimate.ms - (now - estimate.at)) : 0;
   return (
     <div className="flex items-center gap-2 rounded border bg-muted/40 p-2">
       {resting ? <Pause className="size-4 shrink-0 text-muted-foreground" /> : <Spinner className="size-4 shrink-0" />}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{t('bulkUnfollowing', { done: bulkState.done, total: bulkState.total })}</p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-sm font-medium">
+            {t('bulkUnfollowing', { done: bulkState.done, total: bulkState.total })}
+          </p>
+          {timeLeft >= 1000 && (
+            <p className="shrink-0 text-xs tabular-nums text-muted-foreground">
+              {t('bulkTimeLeft', { time: formatDuration(timeLeft) })}
+            </p>
+          )}
+        </div>
         {resting > 0 && (
           <p className="text-xs text-muted-foreground">{t('bulkResting', { time: formatDuration(resting) })}</p>
         )}

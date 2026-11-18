@@ -6,10 +6,11 @@ chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(conso
 
 // One side panel can be open per window, so several may be connected at once.
 // Port objects cannot be serialized; this set is only valid while the worker
-// is alive, and an open port is what keeps it alive.
+// is alive. An idle port does not keep the worker alive (Chrome 114+), so the
+// panel pings over it and reconnects when Chrome stops the worker anyway.
 const ports = new Set<chrome.runtime.Port>();
 
-// Latest message per type, flushed when a port connects. PROGRESS is excluded
+// Latest message per type (per account for unfollow answers), flushed when a port connects. PROGRESS is excluded
 // because the scan lives in the Instagram tab and the panel asks for the
 // current state when it reopens. Buffering every tick would go stale.
 // chrome.storage.session survives worker restarts; the in-memory copy and
@@ -56,12 +57,24 @@ async function persistBuffer() {
   }
 }
 
+/**
+ * Where a message waits in the buffer. Answers about one account (unfollowed,
+ * failed, blocked) each keep their own slot: in a batch, the newest one must
+ * not overwrite the others, or those accounts keep their spinner and stay in
+ * the list after they were unfollowed.
+ */
+function bufferKeyOf(message: unknown): string | null {
+  const { type, deletedId } = (message as { type?: string; deletedId?: string } | undefined) ?? {};
+  if (!type || type === 'PROGRESS' || type === 'KEEPALIVE') return null;
+  return deletedId ? `${type}:${deletedId}` : type;
+}
+
 async function bufferMessage(message: unknown) {
-  const type = (message as { type?: string } | undefined)?.type;
-  if (!type || type === 'PROGRESS') return;
+  const key = bufferKeyOf(message);
+  if (!key) return;
 
   await loadBuffer();
-  memoryBuffer[type] = message;
+  memoryBuffer[key] = message;
   await persistBuffer();
 }
 
@@ -69,13 +82,13 @@ async function flushBufferTo(port: chrome.runtime.Port) {
   await loadBuffer();
   const remaining: Record<string, unknown> = {};
 
-  for (const [type, message] of Object.entries(memoryBuffer)) {
+  for (const [key, message] of Object.entries(memoryBuffer)) {
     try {
       // Tells the panel this arrived while it was closed, so it can say so.
       port.postMessage({ ...(message as object), deliveredLate: true });
     } catch (error) {
       console.error('Failed to flush buffered message', error);
-      remaining[type] = message;
+      remaining[key] = message;
     }
   }
 
@@ -86,6 +99,9 @@ async function flushBufferTo(port: chrome.runtime.Port) {
 chrome.runtime.onConnect.addListener(port => {
   ports.add(port);
   void enqueueBufferTask(() => flushBufferTo(port));
+
+  // The panel's KEEPALIVE pings land here; receiving them is what keeps the worker up.
+  port.onMessage.addListener(() => {});
 
   port.onDisconnect.addListener(() => {
     ports.delete(port);

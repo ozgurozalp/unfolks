@@ -26,6 +26,7 @@ import { AlertTriangle, FileArchive, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast } from 'sonner';
 import sendMessage from '@src/helpers/sendMessage';
+import connectToBackground from '@src/helpers/connectToBackground';
 import { formatDistanceToNow } from 'date-fns';
 import { enUS, tr } from 'date-fns/locale';
 
@@ -261,16 +262,7 @@ function Popup() {
   const handleMessageRef = useRef(handleMessage);
   handleMessageRef.current = handleMessage;
 
-  useMountEffect(() => {
-    const port = chrome.runtime.connect();
-    const listener = (request: Request) => handleMessageRef.current(request);
-    port.onMessage.addListener(listener);
-
-    return () => {
-      port.onMessage.removeListener(listener);
-      port.disconnect();
-    };
-  });
+  useMountEffect(() => connectToBackground(request => handleMessageRef.current(request)));
 
   // The side panel stays open across tab switches, so viewer data is requested
   // whenever an Instagram tab becomes available, not only on mount.

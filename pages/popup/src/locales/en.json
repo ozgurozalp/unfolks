@@ -82,6 +82,7 @@
     "unfollowSelectedDescription": "This unfollows {{count}} accounts slowly. You can stop anytime, but it can't be undone.",
     "unfollowPacingNote": "{{min}}–{{max}} sec between each, with a {{rest}} min rest after every {{every}}.",
     "unfollowPacingNoteNoRest": "{{min}}–{{max}} sec between each.",
+    "bulkTimeLeft": "About {{time}} left",
     "bulkResting": "Resting {{time}} so Instagram doesn't flag the account",
     "selectAll": "Select all",
     "clearSelection": "Clear",

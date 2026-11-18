@@ -82,6 +82,7 @@
     "unfollowSelectedDescription": "Bu işlem {{count}} hesabın takibini yavaş yavaş bırakır. İstediğin an durdurabilirsin ama geri alınamaz.",
     "unfollowPacingNote": "Her biri arasında {{min}}–{{max}} sn, her {{every}} işlemde {{rest}} dk mola.",
     "unfollowPacingNoteNoRest": "Her biri arasında {{min}}–{{max}} sn.",
+    "bulkTimeLeft": "Yaklaşık {{time}} kaldı",
     "bulkResting": "Instagram hesabı işaretlemesin diye {{time}} mola",
     "selectAll": "Tümünü seç",
     "clearSelection": "Temizle",
